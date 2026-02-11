@@ -94,57 +94,11 @@ BOOL AddSection::ModifySectionInfo(const BYTE* Name, const DWORD & size)
 		return false;
 
 	DWORD Temp = 0;
-#ifdef _WIN64
 	dwtemps = AlignUpDword(dwtemps, 0x1000);
 	NewpSection->VirtualAddress = dwtemps;
 	Temp = AlignUpDword(PtrpSection->SizeOfRawData + PtrpSection->PointerToRawData, 0x200);
-	// check arg
 	if (!dwtemps || !Temp)
 		return 0;
-
-#else
-	__asm{
-		pushad;
-		mov		esi, dwtemps;
-		mov		eax, dwtemps;
-		mov		edx, 0x1;
-		mov		cx, 0x1000;
-		div		cx;
-		test	dx, dx;
-		jz		MemSucess
-		shr		dx, 12;
-		inc		dx;
-		shl		dx, 12;
-		add		esi, edx;
-		shr		esi, 12;
-		shl		esi, 12;
-		mov		dwtemps, esi;
-	MemSucess:
-		popad
-	}
-	NewpSection->VirtualAddress = dwtemps;
-
-	Temp = PtrpSection->SizeOfRawData + PtrpSection->PointerToRawData;
-
-	__asm{
-		pushad;
-		mov		esi, Temp;
-		mov		edx, 0x1;
-		mov		eax, Temp;
-		mov		ecx, 0x200;
-		div		cx;
-		test	dx, dx;
-		jz		FileSucess
-		xor		eax, eax
-		mov		ax, 0x200;
-		sub		ax, dx;
-		add		esi, eax;
-		mov		Temp, esi;
-	FileSucess:
-		popad
-	}
-
-#endif // _WIN64
 	NewpSection->PointerToRawData = Temp;
 	NewpSection->SizeOfRawData = size;
 	NewpSection->Misc.VirtualSize = NewpSection->SizeOfRawData;

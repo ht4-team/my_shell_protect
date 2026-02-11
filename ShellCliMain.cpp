@@ -68,16 +68,30 @@ bool InspectPe(const wchar_t* path) {
 		fwprintf(stderr, L"inspect invalid PE signature: %ls\n", path);
 		return false;
 	}
+	const IMAGE_SECTION_HEADER* sec = IMAGE_FIRST_SECTION(nt);
+	const WORD secCount = nt->FileHeader.NumberOfSections;
+	const IMAGE_SECTION_HEADER* lastSec = (secCount > 0) ? &sec[secCount - 1] : nullptr;
 
 	fwprintf(
 		stdout,
-		L"inspect: file=%ls arch=%ls machine=0x%X sections=%u oep=0x%X size=%lu\n",
+		L"inspect: file=%ls arch=%ls machine=0x%X sections=%u oep=0x%X size=%lu",
 		path,
 		MachineToArchWord(nt->FileHeader.Machine),
 		nt->FileHeader.Machine,
 		nt->FileHeader.NumberOfSections,
 		nt->OptionalHeader.AddressOfEntryPoint,
 		size);
+	if (lastSec != nullptr) {
+		fwprintf(
+			stdout,
+			L" lastsec=%hs va=0x%X raw=0x%X vsize=0x%X rsize=0x%X",
+			(const char*)lastSec->Name,
+			lastSec->VirtualAddress,
+			lastSec->PointerToRawData,
+			lastSec->Misc.VirtualSize,
+			lastSec->SizeOfRawData);
+	}
+	fwprintf(stdout, L"\n");
 	free(buf);
 	return true;
 }
