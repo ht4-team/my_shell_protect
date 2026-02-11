@@ -1,5 +1,6 @@
 ﻿#include "stdafx.h"
 #include "puPEinfoData.h"
+#include <mbstring.h>
 
 PuPEInfo::PuPEInfo()
 {

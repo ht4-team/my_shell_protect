@@ -3,6 +3,7 @@
 #include "AddSection.h"
 #include "CompressionData.h"
 #include "UnShell.h"
+#include "puPEinfoData.h"
 #include "studData.h"
 
 #include <stdio.h>
