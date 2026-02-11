@@ -1,6 +1,6 @@
-#include <windows.h>
+#include <stdio.h>
 
-int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
-    MessageBoxA(nullptr, "mini target", "ShellProtect Test", MB_OK);
+int main() {
+    printf("mini-target-ok\n");
     return 0;
 }

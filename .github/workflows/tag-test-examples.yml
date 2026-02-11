@@ -32,6 +32,15 @@ jobs:
       - name: Run pack/unpack tests on examples
         shell: pwsh
         run: |
+          function Assert-CalcLaunch([string]$path) {
+            $proc = Start-Process -FilePath $path -PassThru
+            Start-Sleep -Seconds 2
+            if ($proc.HasExited) {
+              throw "calc process exited too early: $path (exit=$($proc.ExitCode))"
+            }
+            Stop-Process -Id $proc.Id -Force
+          }
+
           New-Item -ItemType Directory -Force -Path test\samples | Out-Null
 
           if (Test-Path examples\calc.exe) {
@@ -45,11 +54,26 @@ jobs:
           Copy-Item bin\CombatShell.dll test\samples\CombatShell.dll -Force
 
           Push-Location test\samples
+          # baseline checks
+          Assert-CalcLaunch ".\calc.exe"
+          $baselineMini = .\mini_target.exe
+          if ($LASTEXITCODE -ne 0) { throw "mini_target baseline run failed with $LASTEXITCODE" }
+          if ($baselineMini -notmatch "mini-target-ok") { throw "mini_target baseline output mismatch: $baselineMini" }
+
+          # packed executable checks
           .\CombatShellCli.exe pack .\calc.exe
+          Assert-CalcLaunch ".\calc.exe"
           .\CombatShellCli.exe unpack .\calc.exe
+          Assert-CalcLaunch ".\calc.exe"
 
           .\CombatShellCli.exe pack .\mini_target.exe
+          $packedMini = .\mini_target.exe
+          if ($LASTEXITCODE -ne 0) { throw "mini_target packed run failed with $LASTEXITCODE" }
+          if ($packedMini -notmatch "mini-target-ok") { throw "mini_target packed output mismatch: $packedMini" }
           .\CombatShellCli.exe unpack .\mini_target.exe
+          $unpackedMini = .\mini_target.exe
+          if ($LASTEXITCODE -ne 0) { throw "mini_target unpacked run failed with $LASTEXITCODE" }
+          if ($unpackedMini -notmatch "mini-target-ok") { throw "mini_target unpacked output mismatch: $unpackedMini" }
           Pop-Location
 
       - name: Archive test outputs
