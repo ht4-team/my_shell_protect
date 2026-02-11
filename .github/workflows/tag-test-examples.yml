@@ -22,58 +22,71 @@ jobs:
         shell: pwsh
         run: |
           msbuild .\CombatShell\CombatShell.vcxproj /m /p:Configuration=Release /p:Platform=Win32
+          msbuild .\CombatShell\CombatShell.vcxproj /m /p:Configuration=Release /p:Platform=x64
           msbuild .\CombatShellCli.vcxproj /m /p:Configuration=Release /p:Platform=Win32
+          msbuild .\CombatShellCli.vcxproj /m /p:Configuration=Release /p:Platform=x64
 
       - name: Build mini example executable
         shell: pwsh
         run: |
           msbuild .\examples\MiniTarget.vcxproj /m /p:Configuration=Release /p:Platform=Win32
+          msbuild .\examples\MiniTarget.vcxproj /m /p:Configuration=Release /p:Platform=x64
 
       - name: Run pack/unpack tests on examples
         shell: pwsh
         run: |
-          function Assert-CalcLaunch([string]$path) {
+          function Assert-LaunchOrZeroExit([string]$path) {
             $proc = Start-Process -FilePath $path -PassThru
             Start-Sleep -Seconds 2
             if ($proc.HasExited) {
               if ($proc.ExitCode -ne 0) {
-                throw "calc process exited with non-zero code: $path (exit=$($proc.ExitCode))"
+                throw "process exited with non-zero code: $path (exit=$($proc.ExitCode))"
               }
               return
             }
             Stop-Process -Id $proc.Id -Force
           }
 
-          New-Item -ItemType Directory -Force -Path test\samples | Out-Null
+          New-Item -ItemType Directory -Force -Path test\samples\x64 | Out-Null
+          New-Item -ItemType Directory -Force -Path test\samples\x86 | Out-Null
 
+          # x64 sample: calc.exe + x64 shell
           if (Test-Path examples\calc.exe) {
-            Copy-Item examples\calc.exe test\samples\calc.exe -Force
+            Copy-Item examples\calc.exe test\samples\x64\calc.exe -Force
           } else {
-            Copy-Item bin\MiniTarget.exe test\samples\calc.exe -Force
+            Copy-Item bin\x64\MiniTarget.exe test\samples\x64\calc.exe -Force
           }
-          Copy-Item bin\MiniTarget.exe test\samples\mini_target.exe -Force
+          Copy-Item bin\x64\CombatShellCli.exe test\samples\x64\CombatShellCli.exe -Force
+          Copy-Item bin\x64\CombatShell.dll test\samples\x64\CombatShell.dll -Force
 
-          Copy-Item bin\CombatShellCli.exe test\samples\CombatShellCli.exe -Force
-          Copy-Item bin\CombatShell.dll test\samples\CombatShell.dll -Force
+          # x86 sample: mini_target.exe + x86 shell
+          Copy-Item bin\MiniTarget.exe test\samples\x86\mini_target.exe -Force
+          Copy-Item bin\CombatShellCli.exe test\samples\x86\CombatShellCli.exe -Force
+          Copy-Item bin\CombatShell.dll test\samples\x86\CombatShell.dll -Force
 
-          Push-Location test\samples
-          # baseline checks
-          Assert-CalcLaunch ".\calc.exe"
+          Push-Location test\samples\x64
+          .\CombatShellCli.exe inspect .\calc.exe
+          Assert-LaunchOrZeroExit ".\calc.exe"
+          .\CombatShellCli.exe pack .\calc.exe
+          .\CombatShellCli.exe inspect .\calc.exe
+          Assert-LaunchOrZeroExit ".\calc.exe"
+          .\CombatShellCli.exe unpack .\calc.exe
+          .\CombatShellCli.exe inspect .\calc.exe
+          Assert-LaunchOrZeroExit ".\calc.exe"
+          Pop-Location
+
+          Push-Location test\samples\x86
+          .\CombatShellCli.exe inspect .\mini_target.exe
           $baselineMini = .\mini_target.exe
           if ($LASTEXITCODE -ne 0) { throw "mini_target baseline run failed with $LASTEXITCODE" }
           if ($baselineMini -notmatch "mini-target-ok") { throw "mini_target baseline output mismatch: $baselineMini" }
-
-          # packed executable checks
-          .\CombatShellCli.exe pack .\calc.exe
-          Assert-CalcLaunch ".\calc.exe"
-          .\CombatShellCli.exe unpack .\calc.exe
-          Assert-CalcLaunch ".\calc.exe"
-
           .\CombatShellCli.exe pack .\mini_target.exe
+          .\CombatShellCli.exe inspect .\mini_target.exe
           $packedMini = .\mini_target.exe
           if ($LASTEXITCODE -ne 0) { throw "mini_target packed run failed with $LASTEXITCODE" }
           if ($packedMini -notmatch "mini-target-ok") { throw "mini_target packed output mismatch: $packedMini" }
           .\CombatShellCli.exe unpack .\mini_target.exe
+          .\CombatShellCli.exe inspect .\mini_target.exe
           $unpackedMini = .\mini_target.exe
           if ($LASTEXITCODE -ne 0) { throw "mini_target unpacked run failed with $LASTEXITCODE" }
           if ($unpackedMini -notmatch "mini-target-ok") { throw "mini_target unpacked output mismatch: $unpackedMini" }

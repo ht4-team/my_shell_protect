@@ -14,11 +14,80 @@ char g_CombatShellDataLocalFile[MAX_PATH] = { 0 };
 namespace {
 constexpr const char* kNewSectionName = ".VMP";
 
+const wchar_t* MachineToArchWord(const WORD machine) {
+	switch (machine) {
+	case IMAGE_FILE_MACHINE_I386:
+		return L"x86";
+	case IMAGE_FILE_MACHINE_AMD64:
+		return L"x64";
+	default:
+		return L"unknown";
+	}
+}
+
+bool InspectPe(const wchar_t* path) {
+	const HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if (file == INVALID_HANDLE_VALUE) {
+		fwprintf(stderr, L"inspect open failed: %ls\n", path);
+		return false;
+	}
+
+	DWORD size = GetFileSize(file, nullptr);
+	if (size == INVALID_FILE_SIZE || size < sizeof(IMAGE_DOS_HEADER) + sizeof(IMAGE_NT_HEADERS64)) {
+		CloseHandle(file);
+		fwprintf(stderr, L"inspect invalid file size: %ls\n", path);
+		return false;
+	}
+
+	char* buf = (char*)malloc(size);
+	if (buf == nullptr) {
+		CloseHandle(file);
+		fwprintf(stderr, L"inspect out of memory: %ls\n", path);
+		return false;
+	}
+
+	DWORD readSize = 0;
+	if (!ReadFile(file, buf, size, &readSize, nullptr) || readSize != size) {
+		free(buf);
+		CloseHandle(file);
+		fwprintf(stderr, L"inspect read failed: %ls\n", path);
+		return false;
+	}
+	CloseHandle(file);
+
+	const IMAGE_DOS_HEADER* dos = (const IMAGE_DOS_HEADER*)buf;
+	if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0 || (DWORD)dos->e_lfanew + sizeof(IMAGE_NT_HEADERS64) > size) {
+		free(buf);
+		fwprintf(stderr, L"inspect invalid PE: %ls\n", path);
+		return false;
+	}
+
+	const IMAGE_NT_HEADERS64* nt = (const IMAGE_NT_HEADERS64*)(buf + dos->e_lfanew);
+	if (nt->Signature != IMAGE_NT_SIGNATURE) {
+		free(buf);
+		fwprintf(stderr, L"inspect invalid PE signature: %ls\n", path);
+		return false;
+	}
+
+	fwprintf(
+		stdout,
+		L"inspect: file=%ls arch=%ls machine=0x%X sections=%u oep=0x%X size=%lu\n",
+		path,
+		MachineToArchWord(nt->FileHeader.Machine),
+		nt->FileHeader.Machine,
+		nt->FileHeader.NumberOfSections,
+		nt->OptionalHeader.AddressOfEntryPoint,
+		size);
+	free(buf);
+	return true;
+}
+
 void PrintUsage() {
 	wprintf(
 		L"Usage:\n"
 		L"  CombatShellCli.exe pack <target.exe>\n"
 		L"  CombatShellCli.exe unpack <target.exe>\n"
+		L"  CombatShellCli.exe inspect <target.exe>\n"
 		L"\\n"
 		L"Notes:\n"
 		L"  - Keep CombatShell.dll in the same directory as the executable.\n"
@@ -221,6 +290,8 @@ int wmain(int argc, wchar_t* argv[]) {
 		ok = RunPack(targetPath);
 	} else if (_wcsicmp(command, L"unpack") == 0) {
 		ok = RunUnpack(targetPath);
+	} else if (_wcsicmp(command, L"inspect") == 0) {
+		ok = InspectPe(target);
 	} else {
 		PrintUsage();
 		return 2;
