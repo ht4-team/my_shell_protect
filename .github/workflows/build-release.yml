@@ -44,20 +44,27 @@ jobs:
           }
 
           New-Item -ItemType Directory -Force -Path $destDir | Out-Null
-          Get-ChildItem $sourceDir -File -Include *.dll,*.lib,*.exp,*.pdb | Copy-Item -Destination $destDir -Force
+          $files = Get-ChildItem -Path $sourceDir -File | Where-Object {
+            $_.Extension -in '.dll', '.lib', '.exp', '.pdb'
+          }
+          if ($files.Count -eq 0) {
+            throw "No build outputs found in $sourceDir"
+          }
+          $files | Copy-Item -Destination $destDir -Force
 
       - name: Package artifacts
         shell: pwsh
         run: |
           $platform = '${{ matrix.platform }}'
-          $zipPath = "dist/CombatShellManage-${platform}-Release.zip"
+          $zipPath = "dist/CombatShell-${platform}-Release.zip"
           Compress-Archive -Path "dist/$platform/*" -DestinationPath $zipPath -Force
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.platform }}
-          path: dist/CombatShellManage-${{ matrix.platform }}-Release.zip
+          path: dist/CombatShell-${{ matrix.platform }}-Release.zip
+          if-no-files-found: error
 
   release:
     name: Publish GitHub Release
