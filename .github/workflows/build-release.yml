@@ -27,25 +27,10 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Install MFC toolchain
+      - name: Build CombatShell DLL
         shell: pwsh
         run: |
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
-          $vsPath = & $vswhere -latest -products * -property installationPath
-          if ([string]::IsNullOrWhiteSpace($vsPath)) {
-            throw "Visual Studio installation path not found."
-          }
-          & $installer modify `
-            --installPath $vsPath `
-            --add Microsoft.VisualStudio.Component.VC.v142.MFC `
-            --add Microsoft.VisualStudio.Component.VC.ATLMFC `
-            --quiet --norestart --nocache --wait
-
-      - name: Build solution
-        shell: pwsh
-        run: |
-          msbuild .\CombatShellManage.sln /m /p:Configuration=Release /p:Platform=${{ matrix.platform }}
+          msbuild .\CombatShell\CombatShell.vcxproj /m /p:Configuration=Release /p:Platform=${{ matrix.platform }}
 
       - name: Collect artifacts
         shell: pwsh
@@ -59,7 +44,7 @@ jobs:
           }
 
           New-Item -ItemType Directory -Force -Path $destDir | Out-Null
-          Get-ChildItem $sourceDir -File -Include *.exe,*.dll,*.pdb | Copy-Item -Destination $destDir -Force
+          Get-ChildItem $sourceDir -File -Include *.dll,*.lib,*.exp,*.pdb | Copy-Item -Destination $destDir -Force
 
       - name: Package artifacts
         shell: pwsh
