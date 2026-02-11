@@ -1,0 +1,62 @@
+name: Tag Example Compression Test
+
+on:
+  push:
+    tags:
+      - "t*"
+  workflow_dispatch:
+
+jobs:
+  test-example-pack:
+    name: Validate Example Pack/Unpack
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build core binaries for test
+        shell: pwsh
+        run: |
+          msbuild .\CombatShell\CombatShell.vcxproj /m /p:Configuration=Release /p:Platform=Win32
+          msbuild .\CombatShellCli.vcxproj /m /p:Configuration=Release /p:Platform=Win32
+
+      - name: Build mini example executable
+        shell: pwsh
+        run: |
+          msbuild .\examples\MiniTarget.vcxproj /m /p:Configuration=Release /p:Platform=Win32
+
+      - name: Run pack/unpack tests on examples
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path test\samples | Out-Null
+
+          Copy-Item examples\calc.exe test\samples\calc.exe -Force
+          Copy-Item bin\MiniTarget.exe test\samples\mini_target.exe -Force
+
+          Copy-Item bin\CombatShellCli.exe test\samples\CombatShellCli.exe -Force
+          Copy-Item bin\CombatShell.dll test\samples\CombatShell.dll -Force
+
+          Push-Location test\samples
+          .\CombatShellCli.exe pack .\calc.exe
+          .\CombatShellCli.exe unpack .\calc.exe
+
+          .\CombatShellCli.exe pack .\mini_target.exe
+          .\CombatShellCli.exe unpack .\mini_target.exe
+          Pop-Location
+
+      - name: Archive test outputs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path test\samples\* -DestinationPath dist\example-pack-test.zip -Force
+
+      - name: Upload test artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: example-pack-test
+          path: dist\example-pack-test.zip
+          if-no-files-found: error

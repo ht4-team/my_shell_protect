@@ -27,11 +27,12 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Build CombatShell DLL
+      - name: Build Release Binaries
         shell: pwsh
         run: |
           msbuild .\CombatShell\CombatShell.vcxproj /m /p:Configuration=Release /p:Platform=${{ matrix.platform }}
           msbuild .\CombatShellCli.vcxproj /m /p:Configuration=Release /p:Platform=${{ matrix.platform }}
+          msbuild .\CombatShellManage.vcxproj /m /p:Configuration=Release /p:Platform=${{ matrix.platform }} /p:PlatformToolset=v143
 
       - name: Collect artifacts
         shell: pwsh
