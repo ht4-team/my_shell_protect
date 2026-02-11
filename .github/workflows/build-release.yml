@@ -27,6 +27,21 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
+      - name: Install MFC toolchain
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
+          $vsPath = & $vswhere -latest -products * -property installationPath
+          if ([string]::IsNullOrWhiteSpace($vsPath)) {
+            throw "Visual Studio installation path not found."
+          }
+          & $installer modify `
+            --installPath $vsPath `
+            --add Microsoft.VisualStudio.Component.VC.v142.MFC `
+            --add Microsoft.VisualStudio.Component.VC.ATLMFC `
+            --quiet --norestart --nocache --wait
+
       - name: Build solution
         shell: pwsh
         run: |
