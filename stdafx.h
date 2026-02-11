@@ -16,8 +16,115 @@
 
 #ifdef SHELLPROTECT_CLI
 #include <Windows.h>
-#include <atlstr.h>
 #include <stdio.h>
+#include <string>
+#include <cwchar>
+#include <cstdarg>
+
+class CString {
+public:
+	CString() = default;
+	CString(const wchar_t* value) : data_(value ? value : L"") {}
+	CString(const char* value) { assign_from_ansi(value); }
+	CString(const std::wstring& value) : data_(value) {}
+
+	CString& operator=(const wchar_t* value) {
+		data_ = value ? value : L"";
+		return *this;
+	}
+
+	CString& operator=(const char* value) {
+		assign_from_ansi(value);
+		return *this;
+	}
+
+	CString& operator=(const CString&) = default;
+	CString(const CString&) = default;
+
+	bool IsEmpty() const { return data_.empty(); }
+	void Empty() { data_.clear(); }
+	int GetLength() const { return static_cast<int>(data_.size()); }
+
+	int ReverseFind(wchar_t ch) const {
+		const size_t pos = data_.find_last_of(ch);
+		return pos == std::wstring::npos ? -1 : static_cast<int>(pos);
+	}
+
+	CString Left(int count) const {
+		if (count <= 0) {
+			return CString();
+		}
+		if (count >= GetLength()) {
+			return *this;
+		}
+		return CString(data_.substr(0, static_cast<size_t>(count)));
+	}
+
+	CString Right(int count) const {
+		if (count <= 0) {
+			return CString();
+		}
+		const int len = GetLength();
+		if (count >= len) {
+			return *this;
+		}
+		return CString(data_.substr(static_cast<size_t>(len - count)));
+	}
+
+	CString Mid(int start) const {
+		if (start <= 0) {
+			return *this;
+		}
+		const int len = GetLength();
+		if (start >= len) {
+			return CString();
+		}
+		return CString(data_.substr(static_cast<size_t>(start)));
+	}
+
+	void Format(const wchar_t* fmt, ...) {
+		wchar_t buffer[512] = { 0 };
+		va_list args;
+		va_start(args, fmt);
+		_vsnwprintf_s(buffer, _countof(buffer), _TRUNCATE, fmt, args);
+		va_end(args);
+		data_ = buffer;
+	}
+
+	const wchar_t* GetString() const { return data_.c_str(); }
+	const wchar_t* GetBSTR() const { return data_.c_str(); }
+	operator const wchar_t*() const { return data_.c_str(); }
+
+	CString operator+(const CString& rhs) const {
+		return CString(data_ + rhs.data_);
+	}
+
+	CString& operator+=(const CString& rhs) {
+		data_ += rhs.data_;
+		return *this;
+	}
+
+private:
+	void assign_from_ansi(const char* value) {
+		if (value == nullptr) {
+			data_.clear();
+			return;
+		}
+		const int size = MultiByteToWideChar(CP_ACP, 0, value, -1, nullptr, 0);
+		if (size <= 0) {
+			data_.clear();
+			return;
+		}
+		std::wstring wide(static_cast<size_t>(size), L'\0');
+		MultiByteToWideChar(CP_ACP, 0, value, -1, &wide[0], size);
+		if (!wide.empty() && wide.back() == L'\0') {
+			wide.pop_back();
+		}
+		data_ = wide;
+	}
+
+	std::wstring data_;
+};
 
 inline int ShellProtectCliMessageBox(const wchar_t* msg) {
 	if (msg != nullptr) {
