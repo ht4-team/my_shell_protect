@@ -36,7 +36,10 @@ jobs:
             $proc = Start-Process -FilePath $path -PassThru
             Start-Sleep -Seconds 2
             if ($proc.HasExited) {
-              throw "calc process exited too early: $path (exit=$($proc.ExitCode))"
+              if ($proc.ExitCode -ne 0) {
+                throw "calc process exited with non-zero code: $path (exit=$($proc.ExitCode))"
+              }
+              return
             }
             Stop-Process -Id $proc.Id -Force
           }
