@@ -111,9 +111,6 @@ BOOL studData::RepairReloCationStud()
 		WORD type : 4;
 	}Node, *PNode;
 
-#ifdef _WIN64
-	LONGLONG dwDelta = (__int64)m_studBase - m_ImageBase64;
-#endif
 	DWORD OldAttribute = 0;
 	while (pStuRelocation->SizeOfBlock)
 	{
@@ -133,11 +130,14 @@ BOOL studData::RepairReloCationStud()
 				VirtualProtect(pRel, 8, OldAttribute, &OldAttribute);
 			}
 #ifdef _WIN64
-			if (RelType->type == 10) {
+			if (RelType[i].type == 10) {
 				PULONGLONG pAddress = (PULONGLONG)((DWORD64)m_studBase + pStuRelocation->VirtualAddress + RelType[i].offset);
 				VirtualProtect(pAddress, 8, PAGE_READWRITE, &OldAttribute);
-				*pAddress += dwDelta;
-				//*pAddress = *pAddress - (DWORD64)m_studBase - ((PIMAGE_SECTION_HEADER)m_dwStudSectionAddress64)->VirtualAddress + ((PIMAGE_SECTION_HEADER)m_dwNewSectionAddress64)->VirtualAddress + m_ImageBase64;
+				*pAddress = *pAddress
+					- (DWORD64)m_studBase
+					- ((PIMAGE_SECTION_HEADER)m_dwStudSectionAddress64)->VirtualAddress
+					+ ((PIMAGE_SECTION_HEADER)m_dwNewSectionAddress64)->VirtualAddress
+					+ m_ImageBase64;
 				VirtualProtect(pAddress, 8, OldAttribute, &OldAttribute);
 			}
 

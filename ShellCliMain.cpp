@@ -184,6 +184,7 @@ bool RunPack(const CString& inputPath) {
 	if (!BuildCombatDataFilePath(inputPath)) {
 		return false;
 	}
+	fprintf(stdout, "pack: metadata=%s\n", g_CombatShellDataLocalFile);
 
 	CString fileName = inputPath;
 	const int slashPos = fileName.ReverseFind('\\') + 1;
@@ -198,6 +199,7 @@ bool RunPack(const CString& inputPath) {
 		fprintf(stderr, "add section failed\n");
 		return false;
 	}
+	fprintf(stdout, "pack: old_oep=0x%X\n", oldOep);
 
 	CompressionData compressor;
 	compressor.puInit(inputPath);
@@ -211,6 +213,7 @@ bool RunPack(const CString& inputPath) {
 		fprintf(stderr, "stud init failed\n");
 		return false;
 	}
+	fprintf(stdout, "pack: shell_stage=%ls\n", (LPCWSTR)compressionMask);
 	SingleStudData::instance()->puLoadLibraryStud();
 	SingleStudData::instance()->puRepairReloCationStud();
 	const bool copyOk = SingleStudData::instance()->puCopyStud() == TRUE;
@@ -226,6 +229,7 @@ bool RunPack(const CString& inputPath) {
 		return false;
 	}
 	DeleteFile(compressionMask);
+	fprintf(stdout, "pack: output=%ls\n", (LPCWSTR)inputPath);
 	return true;
 }
 
