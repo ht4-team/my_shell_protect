@@ -10,6 +10,11 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CombatShellManage", "Combat
 		{DDA1CDD8-B00B-4830-A103-371D2B91399B} = {DDA1CDD8-B00B-4830-A103-371D2B91399B}
 	EndProjectSection
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CombatShellCli", "CombatShellCli.vcxproj", "{8F4E59B7-E6B6-4E90-86FB-74F5D5E14159}"
+	ProjectSection(ProjectDependencies) = postProject
+		{DDA1CDD8-B00B-4830-A103-371D2B91399B} = {DDA1CDD8-B00B-4830-A103-371D2B91399B}
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -40,6 +45,16 @@ Global
 		{03AEDF10-24E0-420D-AD89-B186018CCE0E}.Release|Win32.Build.0 = Release|Win32
 		{03AEDF10-24E0-420D-AD89-B186018CCE0E}.Release|x64.ActiveCfg = Release|x64
 		{03AEDF10-24E0-420D-AD89-B186018CCE0E}.Release|x64.Build.0 = Release|x64
+		{8F4E59B7-E6B6-4E90-86FB-74F5D5E14159}.Debug|Any CPU.ActiveCfg = Debug|Win32
+		{8F4E59B7-E6B6-4E90-86FB-74F5D5E14159}.Debug|Win32.ActiveCfg = Debug|Win32
+		{8F4E59B7-E6B6-4E90-86FB-74F5D5E14159}.Debug|Win32.Build.0 = Debug|Win32
+		{8F4E59B7-E6B6-4E90-86FB-74F5D5E14159}.Debug|x64.ActiveCfg = Debug|x64
+		{8F4E59B7-E6B6-4E90-86FB-74F5D5E14159}.Debug|x64.Build.0 = Debug|x64
+		{8F4E59B7-E6B6-4E90-86FB-74F5D5E14159}.Release|Any CPU.ActiveCfg = Release|Win32
+		{8F4E59B7-E6B6-4E90-86FB-74F5D5E14159}.Release|Win32.ActiveCfg = Release|Win32
+		{8F4E59B7-E6B6-4E90-86FB-74F5D5E14159}.Release|Win32.Build.0 = Release|Win32
+		{8F4E59B7-E6B6-4E90-86FB-74F5D5E14159}.Release|x64.ActiveCfg = Release|x64
+		{8F4E59B7-E6B6-4E90-86FB-74F5D5E14159}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

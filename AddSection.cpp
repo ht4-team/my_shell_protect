@@ -2,12 +2,17 @@
 #include "AddSection.h"
 #include "puPEinfoData.h"
 
-// x64 asm 
-#ifdef _WIN64
-extern "C" void __stdcall AsmCountTemp(PVOID dwdata);
-extern "C" void __stdcall AsmCountTemp1(PVOID dwdata);
-#else
-#endif
+static DWORD AlignUpDword(const DWORD value, const DWORD alignment)
+{
+	if (alignment == 0) {
+		return value;
+	}
+	const DWORD remainder = value % alignment;
+	if (remainder == 0) {
+		return value;
+	}
+	return value + (alignment - remainder);
+}
 
 AddSection::AddSection()
 {
@@ -90,11 +95,9 @@ BOOL AddSection::ModifySectionInfo(const BYTE* Name, const DWORD & size)
 
 	DWORD Temp = 0;
 #ifdef _WIN64
-	// x64下使用，不涉及__int64类型，汇编使用同一套即可
-	AsmCountTemp(&dwtemps);
+	dwtemps = AlignUpDword(dwtemps, 0x1000);
 	NewpSection->VirtualAddress = dwtemps;
-	Temp = PtrpSection->SizeOfRawData + PtrpSection->PointerToRawData;
-	AsmCountTemp1(&Temp);
+	Temp = AlignUpDword(PtrpSection->SizeOfRawData + PtrpSection->PointerToRawData, 0x200);
 	// check arg
 	if (!dwtemps || !Temp)
 		return 0;

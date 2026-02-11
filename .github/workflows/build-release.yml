@@ -31,6 +31,7 @@ jobs:
         shell: pwsh
         run: |
           msbuild .\CombatShell\CombatShell.vcxproj /m /p:Configuration=Release /p:Platform=${{ matrix.platform }}
+          msbuild .\CombatShellCli.vcxproj /m /p:Configuration=Release /p:Platform=${{ matrix.platform }}
 
       - name: Collect artifacts
         shell: pwsh
@@ -45,7 +46,7 @@ jobs:
 
           New-Item -ItemType Directory -Force -Path $destDir | Out-Null
           $files = Get-ChildItem -Path $sourceDir -File | Where-Object {
-            $_.Extension -in '.dll', '.lib', '.exp', '.pdb'
+            $_.Extension -in '.exe', '.dll', '.lib', '.exp', '.pdb'
           }
           if ($files.Count -eq 0) {
             throw "No build outputs found in $sourceDir"

@@ -14,6 +14,20 @@
 // 关闭 MFC 对某些常见但经常可放心忽略的警告消息的隐藏
 #define _AFX_ALL_WARNINGS
 
+#ifdef SHELLPROTECT_CLI
+#include <Windows.h>
+#include <atlstr.h>
+#include <stdio.h>
+
+inline int ShellProtectCliMessageBox(const wchar_t* msg) {
+	if (msg != nullptr) {
+		fwprintf(stderr, L"[ShellProtect] %ls\n", msg);
+	}
+	return 0;
+}
+
+#define AfxMessageBox(msg) ShellProtectCliMessageBox(msg)
+#else
 #include <afxwin.h>         // MFC 核心组件和标准组件
 #include <afxext.h>         // MFC 扩展
 #include <afxdisp.h>        // MFC 自动化类
@@ -25,6 +39,7 @@
 #include <afxcmn.h>             // MFC 对 Windows 公共控件的支持
 #endif // _AFX_NO_AFXCMN_SUPPORT
 #include <afxcontrolbars.h>     // 功能区和控件条的 MFC 支持
+#endif
 
 #include "CodeTool.h"
 #include <list>
