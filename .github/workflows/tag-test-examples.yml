@@ -21,8 +21,8 @@ jobs:
       - name: Build core binaries for test
         shell: pwsh
         run: |
-          msbuild .\CombatShell\CombatShell.vcxproj /m /p:Configuration=Release /p:Platform=Win32 /p:ShellDiagnostics=true
-          msbuild .\CombatShell\CombatShell.vcxproj /m /p:Configuration=Release /p:Platform=x64 /p:ShellDiagnostics=true
+          msbuild .\CombatShell\CombatShell.vcxproj /m /p:Configuration=Release /p:Platform=Win32
+          msbuild .\CombatShell\CombatShell.vcxproj /m /p:Configuration=Release /p:Platform=x64
           msbuild .\CombatShellCli.vcxproj /m /p:Configuration=Release /p:Platform=Win32
           msbuild .\CombatShellCli.vcxproj /m /p:Configuration=Release /p:Platform=x64
 
@@ -89,10 +89,6 @@ jobs:
           $unpackedMini64 = .\mini_target.exe
           if ($LASTEXITCODE -ne 0) { throw "x64 mini_target unpacked run failed with $LASTEXITCODE" }
           if ($unpackedMini64 -notmatch "mini-target-ok") { throw "x64 mini_target unpacked output mismatch: $unpackedMini64" }
-          Get-ChildItem *.shelltrace.log -ErrorAction SilentlyContinue | ForEach-Object {
-            Write-Host "trace($($_.Name))"
-            Get-Content $_.FullName | Select-Object -Last 40
-          }
           Pop-Location
 
           Push-Location test\samples\x86
@@ -101,10 +97,6 @@ jobs:
           .\CombatShellCli.exe inspect .\mini_target.exe
           .\CombatShellCli.exe unpack .\mini_target.exe
           .\CombatShellCli.exe inspect .\mini_target.exe
-          Get-ChildItem *.shelltrace.log -ErrorAction SilentlyContinue | ForEach-Object {
-            Write-Host "trace($($_.Name))"
-            Get-Content $_.FullName | Select-Object -Last 40
-          }
           Write-Host "x86 mini_target runtime assertion skipped; see inspect + archived sample for diagnostics."
           Pop-Location
 

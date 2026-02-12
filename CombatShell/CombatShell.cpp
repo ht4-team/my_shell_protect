@@ -89,39 +89,18 @@ static void ShellDiagTrace(const char* stage)
 	if (stage == nullptr || stage[0] == '\0') {
 		return;
 	}
-
-	char exePath[MAX_PATH] = { 0 };
-	const DWORD len = GetModuleFileNameA(nullptr, exePath, MAX_PATH);
-	if (len == 0 || len >= MAX_PATH) {
+	static unsigned int traceOffset = 0;
+	const unsigned int cap = (unsigned int)sizeof(g_dataHlper);
+	if (traceOffset >= cap - 2) {
 		return;
 	}
 
-	char logPath[MAX_PATH + 32] = { 0 };
-	memcpy(logPath, exePath, len);
-	const char* suffix = ".shelltrace.log";
-	const size_t suffixLen = strlen(suffix);
-	if ((size_t)len + suffixLen + 1 >= sizeof(logPath)) {
-		return;
+	const char* p = stage;
+	while (*p && traceOffset < cap - 2) {
+		g_dataHlper[traceOffset++] = *p++;
 	}
-	memcpy(logPath + len, suffix, suffixLen + 1);
-
-	const HANDLE handle = CreateFileA(
-		logPath,
-		FILE_APPEND_DATA,
-		FILE_SHARE_READ | FILE_SHARE_WRITE,
-		nullptr,
-		OPEN_ALWAYS,
-		FILE_ATTRIBUTE_NORMAL,
-		nullptr);
-	if (handle == INVALID_HANDLE_VALUE) {
-		return;
-	}
-
-	DWORD written = 0;
-	const DWORD stageLen = (DWORD)strlen(stage);
-	WriteFile(handle, stage, stageLen, &written, nullptr);
-	WriteFile(handle, "\r\n", 2, &written, nullptr);
-	CloseHandle(handle);
+	g_dataHlper[traceOffset++] = '|';
+	g_dataHlper[traceOffset] = '\0';
 }
 #define SHELL_TRACE(stage) ShellDiagTrace(stage)
 #else
