@@ -83,6 +83,51 @@ FnGetModuleHandleW MyGetModuleHandleW = nullptr;
 FnLoadLibraryExA MyLoadLibraryExA = nullptr;
 FnGetProcAddress MyGetProcAddress = nullptr;
 
+#ifdef SHELL_DIAGNOSTIC_ENABLED
+static void ShellDiagTrace(const char* stage)
+{
+	if (stage == nullptr || stage[0] == '\0') {
+		return;
+	}
+
+	char exePath[MAX_PATH] = { 0 };
+	const DWORD len = GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+	if (len == 0 || len >= MAX_PATH) {
+		return;
+	}
+
+	char logPath[MAX_PATH + 32] = { 0 };
+	memcpy(logPath, exePath, len);
+	const char* suffix = ".shelltrace.log";
+	const size_t suffixLen = strlen(suffix);
+	if ((size_t)len + suffixLen + 1 >= sizeof(logPath)) {
+		return;
+	}
+	memcpy(logPath + len, suffix, suffixLen + 1);
+
+	const HANDLE handle = CreateFileA(
+		logPath,
+		FILE_APPEND_DATA,
+		FILE_SHARE_READ | FILE_SHARE_WRITE,
+		nullptr,
+		OPEN_ALWAYS,
+		FILE_ATTRIBUTE_NORMAL,
+		nullptr);
+	if (handle == INVALID_HANDLE_VALUE) {
+		return;
+	}
+
+	DWORD written = 0;
+	const DWORD stageLen = (DWORD)strlen(stage);
+	WriteFile(handle, stage, stageLen, &written, nullptr);
+	WriteFile(handle, "\r\n", 2, &written, nullptr);
+	CloseHandle(handle);
+}
+#define SHELL_TRACE(stage) ShellDiagTrace(stage)
+#else
+#define SHELL_TRACE(stage) ((void)0)
+#endif
+
 // x32 asm
 #ifndef _WIN64
 DWORD puGetModule(const DWORD Hash)
@@ -665,11 +710,13 @@ int CreateWind()
 // ShellCode Main
 void WINAPI CombatShellEntry()
 {
+	SHELL_TRACE("CombatShellEntry:start");
 #ifndef _WIN64
 	g_stud.s_Krenel32 = puGetModule(0xEC1C6278);
 	MyLoadLibraryExA = (FnLoadLibraryExA)puGetProcAddress(g_stud.s_Krenel32, 0xC0D83287);
 	g_stud.s_User32 = (DWORD64)MyLoadLibraryExA("user32.dll", NULL, NULL);
 #endif
+	SHELL_TRACE("CombatShellEntry:module_resolved");
 	// VM_Start_start
 	// GetLoadlibraryExA
 	MyLoadLibraryExA = (FnLoadLibraryExA)puGetProcAddress(g_stud.s_Krenel32, 0xC0D83287);
@@ -714,7 +761,9 @@ void WINAPI CombatShellEntry()
 	// GetMyGetProcessAddress
 	MyGetProcAddress = (FnGetProcAddress)puGetProcAddress(g_stud.s_Krenel32, 0xBBAFDF85);
 	
+	SHELL_TRACE("CombatShellEntry:before_CreateWind");
 	CreateWind();
+	SHELL_TRACE("CombatShellEntry:return");
 }
 
 // VM Module
@@ -1021,6 +1070,7 @@ int VmStart(PVOID64 Vmcodeaddr)
 // Unit Test.
 void WINAPI VmEntry()
 {
+	SHELL_TRACE("VmEntry:start");
 	/*
 		1. 使用全局变量保存加密地址列表,地址被读取-虚拟机执行.
 		2. 正常虚拟机会有一套类似于断点 eip == VmcodeAddr，控制eip转换到虚拟机执行.
@@ -1046,6 +1096,7 @@ void WINAPI VmEntry()
 	MyGetModuleHandleW = (FnGetModuleHandleW)puGetProcAddress(g_stud.s_Krenel32, 0xF4E2F2C8);
 	// g_stud.s_User32 = (DWORD64)MyGetModuleHandleW(L"user32.dll");
 	g_hInstance = (HINSTANCE)MyGetModuleHandleW(NULL);
+	SHELL_TRACE("VmEntry:api_ready");
 
 	// 1. 方案一使用文件保存VmCodeList数据-缺点不灵活,不格外增加壳体积。 开始使用该方案
 	// 2. 方案二使用添加新区段保存,稳妥。
@@ -1059,6 +1110,7 @@ void WINAPI VmEntry()
 		// 未进行VM加密,执行壳代码
 		if (!g_VmNode.VmCount)
 		{
+			SHELL_TRACE("VmEntry:fallback_CombatShellEntry");
 			CombatShellEntry();
 			return;
 		}
@@ -1071,6 +1123,7 @@ void WINAPI VmEntry()
 
 			if (g_VmNode.Vmencodeasmlen)
 			{
+				SHELL_TRACE("VmEntry:before_VmStart");
 				// 结构体目前 3*4 = 12
 				// char* VmStackCode = (char *)Mymalloc(g_VmNode.Vmencodeasmlen * sizeof(ArrayHlerp));
 				// Mymemset(VmStackCode, 0, g_VmNode.Vmencodeasmlen * 16);
@@ -1088,6 +1141,7 @@ void WINAPI VmEntry()
 				// Vmnode.data = (ArrayHlerp *)VmStackCode;
 				// 进入虚拟机 -->  执行 --> oep
 				VmStart(&g_VmNode);
+				SHELL_TRACE("VmEntry:after_VmStart");
 				// Myfree(VmStackCode);
 				// VmStackCode = NULL;
 			}
