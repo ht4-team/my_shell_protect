@@ -120,6 +120,7 @@ BOOL studData::RepairReloCationStud()
 
 		for (DWORD i = 0; i < nStuRelocationBlockCount; ++i)
 		{
+#ifndef _WIN64
 			if (RelType[i].type == 3) {
 				DWORD* pRel = (DWORD *)(pStuRelocation->VirtualAddress + RelType[i].offset + (DWORD)m_studBase);
 
@@ -129,7 +130,7 @@ BOOL studData::RepairReloCationStud()
 
 				VirtualProtect(pRel, 8, OldAttribute, &OldAttribute);
 			}
-#ifdef _WIN64
+#else
 			if (RelType[i].type == 10) {
 				PULONGLONG pAddress = (PULONGLONG)((DWORD64)m_studBase + pStuRelocation->VirtualAddress + RelType[i].offset);
 				VirtualProtect(pAddress, 8, PAGE_READWRITE, &OldAttribute);
@@ -140,8 +141,7 @@ BOOL studData::RepairReloCationStud()
 					+ m_ImageBase64;
 				VirtualProtect(pAddress, 8, OldAttribute, &OldAttribute);
 			}
-
-#endif // _WIN64
+#endif
 		}
 #ifdef _WIN64
 		pStuRelocation = (PIMAGE_BASE_RELOCATION)((DWORD64)pStuRelocation + pStuRelocation->SizeOfBlock);
