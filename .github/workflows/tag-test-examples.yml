@@ -132,6 +132,7 @@ jobs:
           $ErrorActionPreference = "Stop"
 
           New-Item -ItemType Directory -Force -Path dist\diagnostics | Out-Null
+          New-Item -ItemType Directory -Force -Path dist\packed\calc_isolated | Out-Null
 
           function Enable-LocalDumps([string]$exeName) {
             $dumpDir = (Resolve-Path "dist\diagnostics").Path
@@ -171,6 +172,8 @@ jobs:
           Enable-LocalDumps "mini_target_x64_packed.exe"
           Enable-LocalDumps "mini_target_x86_packed.exe"
 
+          Copy-Item .\dist\packed\x64\calc_x64_packed.exe .\dist\packed\calc_isolated\calc_x64_packed.exe -Force
+          Assert-LaunchOrCollect ".\dist\packed\calc_isolated\calc_x64_packed.exe" "calc_x64_packed_isolated"
           Assert-LaunchOrCollect ".\dist\packed\x64\calc_x64_packed.exe" "calc_x64_packed"
 
           Assert-LaunchOrCollect ".\dist\packed\x64\mini_target_x64_packed.exe" "mini_target_x64_packed"
