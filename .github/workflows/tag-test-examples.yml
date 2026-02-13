@@ -104,6 +104,31 @@ jobs:
           Write-Host "x86 mini_target runtime assertion skipped; see inspect + archived sample for diagnostics."
           Pop-Location
 
+      - name: Execute packed executables
+        shell: pwsh
+        run: |
+          function Assert-LaunchOrZeroExit([string]$path) {
+            $proc = Start-Process -FilePath $path -PassThru
+            Start-Sleep -Seconds 2
+            if ($proc.HasExited) {
+              if ($proc.ExitCode -ne 0) {
+                throw "process exited with non-zero code: $path (exit=$($proc.ExitCode))"
+              }
+              return
+            }
+            Stop-Process -Id $proc.Id -Force
+          }
+
+          Assert-LaunchOrZeroExit ".\dist\packed\calc_x64_packed.exe"
+
+          $mini64 = .\dist\packed\mini_target_x64_packed.exe
+          if ($LASTEXITCODE -ne 0) { throw "mini_target_x64_packed run failed with $LASTEXITCODE" }
+          if ($mini64 -notmatch "mini-target-ok") { throw "mini_target_x64_packed output mismatch: $mini64" }
+
+          $mini86 = .\dist\packed\mini_target_x86_packed.exe
+          if ($LASTEXITCODE -ne 0) { throw "mini_target_x86_packed run failed with $LASTEXITCODE" }
+          if ($mini86 -notmatch "mini-target-ok") { throw "mini_target_x86_packed output mismatch: $mini86" }
+
       - name: Upload test samples artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -112,10 +137,26 @@ jobs:
           path: test\samples\*
           if-no-files-found: error
 
-      - name: Upload packed executables artifact
+      - name: Upload packed calc artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: packed-executables
-          path: dist\packed\*.exe
-          if-no-files-found: warn
+          name: packed-calc-x64
+          path: dist\packed\calc_x64_packed.exe
+          if-no-files-found: error
+
+      - name: Upload packed mini x64 artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packed-mini-target-x64
+          path: dist\packed\mini_target_x64_packed.exe
+          if-no-files-found: error
+
+      - name: Upload packed mini x86 artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packed-mini-target-x86
+          path: dist\packed\mini_target_x86_packed.exe
+          if-no-files-found: error
