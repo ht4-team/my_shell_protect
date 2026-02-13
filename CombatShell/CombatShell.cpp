@@ -490,16 +490,30 @@ void RepairTheIAT()
 		while (pThunkINT->u1.AddressOfData)
 		{
 			MyVirtualProtect((PVOID64)pThunkIAT, 0x16, PAGE_READWRITE, &Att_old);
-			if (!IMAGE_SNAP_BY_ORDINAL(pThunkIAT->u1.Ordinal))
+			const ULONGLONG thunkValue = pThunkINT->u1.AddressOfData;
+#ifdef _WIN64
+			if (!IMAGE_SNAP_BY_ORDINAL64(thunkValue))
 			{
-				PIMAGE_IMPORT_BY_NAME pName = (PIMAGE_IMPORT_BY_NAME)(pThunkINT->u1.AddressOfData + dwMoudle);
+				PIMAGE_IMPORT_BY_NAME pName = (PIMAGE_IMPORT_BY_NAME)(thunkValue + dwMoudle);
 				FunAddress = (DWORD64)MyGetProcAddress(hModuledll, pName->Name);
 			}
 			else
 			{
-				DWORD64 dwFunOrdinal = IMAGE_ORDINAL((pThunkIAT->u1.Ordinal));
-				FunAddress = (DWORD64)MyGetProcAddress(hModuledll, (char*)dwFunOrdinal);
+				DWORD64 dwFunOrdinal = IMAGE_ORDINAL64(thunkValue);
+				FunAddress = (DWORD64)MyGetProcAddress(hModuledll, (char*)(ULONG_PTR)dwFunOrdinal);
 			}
+#else
+			if (!IMAGE_SNAP_BY_ORDINAL32((DWORD)thunkValue))
+			{
+				PIMAGE_IMPORT_BY_NAME pName = (PIMAGE_IMPORT_BY_NAME)(thunkValue + dwMoudle);
+				FunAddress = (DWORD64)MyGetProcAddress(hModuledll, pName->Name);
+			}
+			else
+			{
+				DWORD dwFunOrdinal = IMAGE_ORDINAL32((DWORD)thunkValue);
+				FunAddress = (DWORD64)MyGetProcAddress(hModuledll, (char*)(ULONG_PTR)dwFunOrdinal);
+			}
+#endif
 
 #ifdef _WIN64
 			pThunkIAT->u1.Function = (ULONGLONG)FunAddress;
