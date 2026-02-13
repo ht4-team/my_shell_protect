@@ -75,6 +75,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path test\samples\x64 | Out-Null
           New-Item -ItemType Directory -Force -Path test\samples\x86 | Out-Null
           New-Item -ItemType Directory -Force -Path dist\packed | Out-Null
+          New-Item -ItemType Directory -Force -Path dist\packed\x64 | Out-Null
+          New-Item -ItemType Directory -Force -Path dist\packed\x86 | Out-Null
+          Copy-Item test\samples\x64\CombatShell.dll dist\packed\x64\CombatShell.dll -Force
+          Copy-Item test\samples\x86\CombatShell.dll dist\packed\x86\CombatShell.dll -Force
           Enable-LocalDumps "calc.exe"
           Enable-LocalDumps "mini_target.exe"
 
@@ -98,7 +102,7 @@ jobs:
           Assert-LaunchOrCollect ".\calc.exe" "calc_x64_baseline"
           .\CombatShellCli.exe pack .\calc.exe
           .\CombatShellCli.exe inspect .\calc.exe
-          Copy-Item .\calc.exe ..\..\..\dist\packed\calc_x64_packed.exe -Force
+          Copy-Item .\calc.exe ..\..\..\dist\packed\x64\calc_x64_packed.exe -Force
           Assert-LaunchOrCollect ".\calc.exe" "calc_x64_packed"
           .\CombatShellCli.exe unpack .\calc.exe
           .\CombatShellCli.exe inspect .\calc.exe
@@ -107,7 +111,7 @@ jobs:
           .\CombatShellCli.exe inspect .\mini_target.exe
           .\CombatShellCli.exe pack .\mini_target.exe
           .\CombatShellCli.exe inspect .\mini_target.exe
-          Copy-Item .\mini_target.exe ..\..\..\dist\packed\mini_target_x64_packed.exe -Force
+          Copy-Item .\mini_target.exe ..\..\..\dist\packed\x64\mini_target_x64_packed.exe -Force
           .\CombatShellCli.exe unpack .\mini_target.exe
           .\CombatShellCli.exe inspect .\mini_target.exe
           Pop-Location
@@ -116,7 +120,7 @@ jobs:
           .\CombatShellCli.exe inspect .\mini_target.exe
           .\CombatShellCli.exe pack .\mini_target.exe
           .\CombatShellCli.exe inspect .\mini_target.exe
-          Copy-Item .\mini_target.exe ..\..\..\dist\packed\mini_target_x86_packed.exe -Force
+          Copy-Item .\mini_target.exe ..\..\..\dist\packed\x86\mini_target_x86_packed.exe -Force
           .\CombatShellCli.exe unpack .\mini_target.exe
           .\CombatShellCli.exe inspect .\mini_target.exe
           Write-Host "x86 mini_target runtime assertion skipped; see inspect + archived sample for diagnostics."
@@ -167,11 +171,11 @@ jobs:
           Enable-LocalDumps "mini_target_x64_packed.exe"
           Enable-LocalDumps "mini_target_x86_packed.exe"
 
-          Assert-LaunchOrCollect ".\dist\packed\calc_x64_packed.exe" "calc_x64_packed"
+          Assert-LaunchOrCollect ".\dist\packed\x64\calc_x64_packed.exe" "calc_x64_packed"
 
-          Assert-LaunchOrCollect ".\dist\packed\mini_target_x64_packed.exe" "mini_target_x64_packed"
+          Assert-LaunchOrCollect ".\dist\packed\x64\mini_target_x64_packed.exe" "mini_target_x64_packed"
 
-          Assert-LaunchOrCollect ".\dist\packed\mini_target_x86_packed.exe" "mini_target_x86_packed"
+          Assert-LaunchOrCollect ".\dist\packed\x86\mini_target_x86_packed.exe" "mini_target_x86_packed"
 
       - name: Upload test samples artifact
         if: always()
@@ -186,7 +190,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: packed-calc-x64
-          path: dist\packed\calc_x64_packed.exe
+          path: dist\packed\x64\calc_x64_packed.exe
           if-no-files-found: error
 
       - name: Upload packed mini x64 artifact
@@ -194,7 +198,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: packed-mini-target-x64
-          path: dist\packed\mini_target_x64_packed.exe
+          path: dist\packed\x64\mini_target_x64_packed.exe
           if-no-files-found: error
 
       - name: Upload packed mini x86 artifact
@@ -202,7 +206,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: packed-mini-target-x86
-          path: dist\packed\mini_target_x86_packed.exe
+          path: dist\packed\x86\mini_target_x86_packed.exe
           if-no-files-found: error
 
       - name: Upload crash diagnostics artifact
