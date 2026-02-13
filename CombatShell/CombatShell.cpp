@@ -704,7 +704,11 @@ int CreateWind()
 void WINAPI CombatShellEntry()
 {
 	SHELL_TRACE("CombatShellEntry:start");
-#ifndef _WIN64
+#ifdef _WIN64
+	puGetModule(0x228C4218, &g_stud.s_Krenel32);
+	MyLoadLibraryExA = (FnLoadLibraryExA)puGetProcAddress(g_stud.s_Krenel32, 0xC0D83287);
+	g_stud.s_User32 = (DWORD64)MyLoadLibraryExA("user32.dll", NULL, NULL);
+#else
 	g_stud.s_Krenel32 = puGetModule(0xEC1C6278);
 	MyLoadLibraryExA = (FnLoadLibraryExA)puGetProcAddress(g_stud.s_Krenel32, 0xC0D83287);
 	g_stud.s_User32 = (DWORD64)MyLoadLibraryExA("user32.dll", NULL, NULL);
