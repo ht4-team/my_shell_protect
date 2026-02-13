@@ -75,9 +75,9 @@ BOOL studData::LoadLibraryStud()
 	}
 	// 获取dll的导出函数
 #ifdef _WIN64
-	dexportAddress = GetProcAddress((HMODULE)m_studBase, "CombatShellEntry");
+	dexportAddress = GetProcAddress((HMODULE)m_studBase, "VmEntry");
 	if (dexportAddress == nullptr) {
-		dexportAddress = GetProcAddress((HMODULE)m_studBase, "VmEntry");
+		dexportAddress = GetProcAddress((HMODULE)m_studBase, "CombatShellEntry");
 	}
 #else
 	dexportAddress = GetProcAddress((HMODULE)m_studBase, "CombatShellEntry");
