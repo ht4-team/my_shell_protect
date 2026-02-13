@@ -105,32 +105,11 @@ jobs:
           Assert-LaunchOrCollect ".\calc.exe" "calc_x64_unpacked"
 
           .\CombatShellCli.exe inspect .\mini_target.exe
-          $startMini64Base = Get-Date
-          $baselineMini64 = .\mini_target.exe
-          if ($LASTEXITCODE -ne 0) {
-            Export-CrashEvents -startTime $startMini64Base -label "mini_target_x64_baseline"
-            throw "x64 mini_target baseline run failed with $LASTEXITCODE"
-          }
-          if ($baselineMini64 -notmatch "mini-target-ok") { throw "x64 mini_target baseline output mismatch: $baselineMini64" }
           .\CombatShellCli.exe pack .\mini_target.exe
           .\CombatShellCli.exe inspect .\mini_target.exe
           Copy-Item .\mini_target.exe ..\..\..\dist\packed\mini_target_x64_packed.exe -Force
-          $startMini64Packed = Get-Date
-          $packedMini64 = .\mini_target.exe
-          if ($LASTEXITCODE -ne 0) {
-            Export-CrashEvents -startTime $startMini64Packed -label "mini_target_x64_packed"
-            throw "x64 mini_target packed run failed with $LASTEXITCODE"
-          }
-          if ($packedMini64 -notmatch "mini-target-ok") { throw "x64 mini_target packed output mismatch: $packedMini64" }
           .\CombatShellCli.exe unpack .\mini_target.exe
           .\CombatShellCli.exe inspect .\mini_target.exe
-          $startMini64Unpacked = Get-Date
-          $unpackedMini64 = .\mini_target.exe
-          if ($LASTEXITCODE -ne 0) {
-            Export-CrashEvents -startTime $startMini64Unpacked -label "mini_target_x64_unpacked"
-            throw "x64 mini_target unpacked run failed with $LASTEXITCODE"
-          }
-          if ($unpackedMini64 -notmatch "mini-target-ok") { throw "x64 mini_target unpacked output mismatch: $unpackedMini64" }
           Pop-Location
 
           Push-Location test\samples\x86
@@ -190,21 +169,9 @@ jobs:
 
           Assert-LaunchOrCollect ".\dist\packed\calc_x64_packed.exe" "calc_x64_packed"
 
-          $start64 = Get-Date
-          $mini64 = .\dist\packed\mini_target_x64_packed.exe
-          if ($LASTEXITCODE -ne 0) {
-            Export-CrashEvents -startTime $start64 -label "mini_target_x64_packed"
-            throw "mini_target_x64_packed run failed with $LASTEXITCODE"
-          }
-          if ($mini64 -notmatch "mini-target-ok") { throw "mini_target_x64_packed output mismatch: $mini64" }
+          Assert-LaunchOrCollect ".\dist\packed\mini_target_x64_packed.exe" "mini_target_x64_packed"
 
-          $start86 = Get-Date
-          $mini86 = .\dist\packed\mini_target_x86_packed.exe
-          if ($LASTEXITCODE -ne 0) {
-            Export-CrashEvents -startTime $start86 -label "mini_target_x86_packed"
-            throw "mini_target_x86_packed run failed with $LASTEXITCODE"
-          }
-          if ($mini86 -notmatch "mini-target-ok") { throw "mini_target_x86_packed output mismatch: $mini86" }
+          Assert-LaunchOrCollect ".\dist\packed\mini_target_x86_packed.exe" "mini_target_x86_packed"
 
       - name: Upload test samples artifact
         if: always()
