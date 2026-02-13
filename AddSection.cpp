@@ -88,20 +88,35 @@ BOOL AddSection::ModifySectionInfo(const BYTE* Name, const DWORD & size)
 
 	pSectionAddress += 0x28;
 	NewpSection = (PIMAGE_SECTION_HEADER)pSectionAddress;
-	memcpy(NewpSection->Name, Name, sizeof(Name));
-	DWORD dwtemps = PtrpSection->VirtualAddress + PtrpSection->SizeOfRawData;
+	memset(NewpSection->Name, 0, IMAGE_SIZEOF_SHORT_NAME);
+	if (Name) {
+		size_t nameLen = 0;
+		while (nameLen < IMAGE_SIZEOF_SHORT_NAME && Name[nameLen] != '\0') {
+			++nameLen;
+		}
+		memcpy(NewpSection->Name, Name, nameLen);
+	}
+
+	PIMAGE_NT_HEADERS pNt = (PIMAGE_NT_HEADERS)pNtHeadre;
+	if (!pNt) {
+		return false;
+	}
+	const DWORD sectionAlignment = pNt->OptionalHeader.SectionAlignment ? pNt->OptionalHeader.SectionAlignment : 0x1000;
+	const DWORD fileAlignment = pNt->OptionalHeader.FileAlignment ? pNt->OptionalHeader.FileAlignment : 0x200;
+	const DWORD prevVirtualSize = PtrpSection->Misc.VirtualSize ? PtrpSection->Misc.VirtualSize : PtrpSection->SizeOfRawData;
+	DWORD dwtemps = PtrpSection->VirtualAddress + AlignUpDword(prevVirtualSize, sectionAlignment);
 	if (!dwtemps)
 		return false;
 
 	DWORD Temp = 0;
-	dwtemps = AlignUpDword(dwtemps, 0x1000);
+	dwtemps = AlignUpDword(dwtemps, sectionAlignment);
 	NewpSection->VirtualAddress = dwtemps;
-	Temp = AlignUpDword(PtrpSection->SizeOfRawData + PtrpSection->PointerToRawData, 0x200);
+	Temp = AlignUpDword(PtrpSection->SizeOfRawData + PtrpSection->PointerToRawData, fileAlignment);
 	if (!dwtemps || !Temp)
 		return 0;
 	NewpSection->PointerToRawData = Temp;
-	NewpSection->SizeOfRawData = size;
-	NewpSection->Misc.VirtualSize = NewpSection->SizeOfRawData;
+	NewpSection->SizeOfRawData = AlignUpDword(size, fileAlignment);
+	NewpSection->Misc.VirtualSize = size;
 	NewpSection->Characteristics = 0xE00000E0;
 	return TRUE;
 }
@@ -120,7 +135,8 @@ BOOL AddSection::ModifySizeofImage()
 {
 	PIMAGE_NT_HEADERS pNt = (PIMAGE_NT_HEADERS)pNtHeadre;
 	if (pNt) {
-		pNt->OptionalHeader.SizeOfImage = NewpSection->VirtualAddress + NewpSection->SizeOfRawData;
+		const DWORD sectionAlignment = pNt->OptionalHeader.SectionAlignment ? pNt->OptionalHeader.SectionAlignment : 0x1000;
+		pNt->OptionalHeader.SizeOfImage = AlignUpDword(NewpSection->VirtualAddress + NewpSection->Misc.VirtualSize, sectionAlignment);
 		pNt->OptionalHeader.DllCharacteristics = 0x8000;
 		return TRUE;
 	}

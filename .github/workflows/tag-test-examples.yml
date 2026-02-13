@@ -35,11 +35,36 @@ jobs:
       - name: Run pack/unpack tests on examples
         shell: pwsh
         run: |
-          function Assert-LaunchOrZeroExit([string]$path) {
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path dist\diagnostics | Out-Null
+
+          function Enable-LocalDumps([string]$exeName) {
+            $dumpDir = (Resolve-Path "dist\diagnostics").Path
+            $dumpKey = "HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\$exeName"
+            New-Item -Path $dumpKey -Force | Out-Null
+            New-ItemProperty -Path $dumpKey -Name "DumpFolder" -PropertyType ExpandString -Value $dumpDir -Force | Out-Null
+            New-ItemProperty -Path $dumpKey -Name "DumpType" -PropertyType DWord -Value 2 -Force | Out-Null
+            New-ItemProperty -Path $dumpKey -Name "DumpCount" -PropertyType DWord -Value 10 -Force | Out-Null
+          }
+
+          function Export-CrashEvents([datetime]$startTime, [string]$label) {
+            $events = Get-WinEvent -FilterHashtable @{ LogName = "Application"; StartTime = $startTime.AddSeconds(-5) } -ErrorAction SilentlyContinue |
+              Where-Object { $_.ProviderName -in @("Application Error", "Windows Error Reporting") }
+            if ($events) {
+              $events |
+                Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message |
+                Format-List |
+                Out-File -FilePath "dist\diagnostics\${label}_events.txt" -Encoding utf8
+            }
+          }
+
+          function Assert-LaunchOrCollect([string]$path, [string]$label) {
+            $start = Get-Date
             $proc = Start-Process -FilePath $path -PassThru
             Start-Sleep -Seconds 2
             if ($proc.HasExited) {
               if ($proc.ExitCode -ne 0) {
+                Export-CrashEvents -startTime $start -label $label
                 throw "process exited with non-zero code: $path (exit=$($proc.ExitCode))"
               }
               return
@@ -50,6 +75,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path test\samples\x64 | Out-Null
           New-Item -ItemType Directory -Force -Path test\samples\x86 | Out-Null
           New-Item -ItemType Directory -Force -Path dist\packed | Out-Null
+          Enable-LocalDumps "calc.exe"
+          Enable-LocalDumps "mini_target.exe"
 
           # x64 sample: calc.exe + x64 shell
           if (Test-Path examples\calc.exe) {
@@ -68,29 +95,41 @@ jobs:
 
           Push-Location test\samples\x64
           .\CombatShellCli.exe inspect .\calc.exe
-          Assert-LaunchOrZeroExit ".\calc.exe"
+          Assert-LaunchOrCollect ".\calc.exe" "calc_x64_baseline"
           .\CombatShellCli.exe pack .\calc.exe
           .\CombatShellCli.exe inspect .\calc.exe
-          Assert-LaunchOrZeroExit ".\calc.exe"
           Copy-Item .\calc.exe ..\..\..\dist\packed\calc_x64_packed.exe -Force
+          Assert-LaunchOrCollect ".\calc.exe" "calc_x64_packed"
           .\CombatShellCli.exe unpack .\calc.exe
           .\CombatShellCli.exe inspect .\calc.exe
-          Assert-LaunchOrZeroExit ".\calc.exe"
+          Assert-LaunchOrCollect ".\calc.exe" "calc_x64_unpacked"
 
           .\CombatShellCli.exe inspect .\mini_target.exe
+          $startMini64Base = Get-Date
           $baselineMini64 = .\mini_target.exe
-          if ($LASTEXITCODE -ne 0) { throw "x64 mini_target baseline run failed with $LASTEXITCODE" }
+          if ($LASTEXITCODE -ne 0) {
+            Export-CrashEvents -startTime $startMini64Base -label "mini_target_x64_baseline"
+            throw "x64 mini_target baseline run failed with $LASTEXITCODE"
+          }
           if ($baselineMini64 -notmatch "mini-target-ok") { throw "x64 mini_target baseline output mismatch: $baselineMini64" }
           .\CombatShellCli.exe pack .\mini_target.exe
           .\CombatShellCli.exe inspect .\mini_target.exe
-          $packedMini64 = .\mini_target.exe
-          if ($LASTEXITCODE -ne 0) { throw "x64 mini_target packed run failed with $LASTEXITCODE" }
-          if ($packedMini64 -notmatch "mini-target-ok") { throw "x64 mini_target packed output mismatch: $packedMini64" }
           Copy-Item .\mini_target.exe ..\..\..\dist\packed\mini_target_x64_packed.exe -Force
+          $startMini64Packed = Get-Date
+          $packedMini64 = .\mini_target.exe
+          if ($LASTEXITCODE -ne 0) {
+            Export-CrashEvents -startTime $startMini64Packed -label "mini_target_x64_packed"
+            throw "x64 mini_target packed run failed with $LASTEXITCODE"
+          }
+          if ($packedMini64 -notmatch "mini-target-ok") { throw "x64 mini_target packed output mismatch: $packedMini64" }
           .\CombatShellCli.exe unpack .\mini_target.exe
           .\CombatShellCli.exe inspect .\mini_target.exe
+          $startMini64Unpacked = Get-Date
           $unpackedMini64 = .\mini_target.exe
-          if ($LASTEXITCODE -ne 0) { throw "x64 mini_target unpacked run failed with $LASTEXITCODE" }
+          if ($LASTEXITCODE -ne 0) {
+            Export-CrashEvents -startTime $startMini64Unpacked -label "mini_target_x64_unpacked"
+            throw "x64 mini_target unpacked run failed with $LASTEXITCODE"
+          }
           if ($unpackedMini64 -notmatch "mini-target-ok") { throw "x64 mini_target unpacked output mismatch: $unpackedMini64" }
           Pop-Location
 
