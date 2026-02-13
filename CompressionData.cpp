@@ -218,6 +218,11 @@ BOOL CompressionData::CompressSectionData()
 		void* DataAddress = (void *)(pSections->PointerToRawData + (DWORD64)m_lpBase);
 #ifdef _WIN64
 		qlz_state_compress *state_compress = (qlz_state_compress *)malloc(sizeof(qlz_state_compress));
+		if (!state_compress) {
+			AfxMessageBox(L"no enough memory!\n");
+			return -1;
+		}
+		memset(state_compress, 0, sizeof(qlz_state_compress));
 
 		// 计算安全缓冲区
 		//const int blen = LZ4_compressBound(pSections->SizeOfRawData + 1);
@@ -233,7 +238,13 @@ BOOL CompressionData::CompressSectionData()
 
 		/* 压缩 */
 		// const int dwCompressionSize = LZ4_compress_default((char*)DataAddress, buf, pSections->SizeOfRawData, blen);
-		const int dwCompressionSize = qlz_compress((char*)DataAddress, buf, blen, state_compress);
+		const int dwCompressionSize = (int)qlz_compress((char*)DataAddress, buf, pSections->SizeOfRawData, state_compress);
+		if (dwCompressionSize <= 0 || dwCompressionSize > blen) {
+			free(state_compress);
+			free(buf);
+			AfxMessageBox(L"qlz compress failure!\n");
+			return -1;
+		}
 #else 
 		DWORD blen;
 
@@ -272,6 +283,12 @@ BOOL CompressionData::CompressSectionData()
 			free(buf);
 			buf = nullptr;
 		}
+#ifdef _WIN64
+		if (state_compress) {
+			free(state_compress);
+			state_compress = nullptr;
+		}
+#endif
 		++pSections;
 	}
 	if (fpFile)
