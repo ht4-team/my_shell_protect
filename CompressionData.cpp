@@ -157,9 +157,11 @@ BOOL CompressionData::CompressSectionData()
 	g_stu->s_OneSectionSizeofData = FALSE;
 
 #ifdef _WIN64
-	// 压缩前后都可以, 仅壳代码VM
-	int nLen = 0;
-	VmcodeEntry(NULL, nLen);
+	// Stability-first mode: disable x64 VM entry transformation for now.
+	// VmEntry will fallback to CombatShellEntry when VmCount is zero.
+	if (g_Vm) {
+		memset(g_Vm, 0, sizeof(VmNode));
+	}
 
 	PIMAGE_NT_HEADERS pNt = (PIMAGE_NT_HEADERS)(((PIMAGE_DOS_HEADER)m_lpBase)->e_lfanew + (DWORD64)m_lpBase);
 #else
