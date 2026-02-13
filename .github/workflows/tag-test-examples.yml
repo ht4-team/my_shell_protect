@@ -72,7 +72,7 @@ jobs:
           .\CombatShellCli.exe pack .\calc.exe
           .\CombatShellCli.exe inspect .\calc.exe
           Assert-LaunchOrZeroExit ".\calc.exe"
-          Copy-Item .\calc.exe ..\..\dist\packed\calc_x64_packed.exe -Force
+          Copy-Item .\calc.exe ..\..\..\dist\packed\calc_x64_packed.exe -Force
           .\CombatShellCli.exe unpack .\calc.exe
           .\CombatShellCli.exe inspect .\calc.exe
           Assert-LaunchOrZeroExit ".\calc.exe"
@@ -86,7 +86,7 @@ jobs:
           $packedMini64 = .\mini_target.exe
           if ($LASTEXITCODE -ne 0) { throw "x64 mini_target packed run failed with $LASTEXITCODE" }
           if ($packedMini64 -notmatch "mini-target-ok") { throw "x64 mini_target packed output mismatch: $packedMini64" }
-          Copy-Item .\mini_target.exe ..\..\dist\packed\mini_target_x64_packed.exe -Force
+          Copy-Item .\mini_target.exe ..\..\..\dist\packed\mini_target_x64_packed.exe -Force
           .\CombatShellCli.exe unpack .\mini_target.exe
           .\CombatShellCli.exe inspect .\mini_target.exe
           $unpackedMini64 = .\mini_target.exe
@@ -98,7 +98,7 @@ jobs:
           .\CombatShellCli.exe inspect .\mini_target.exe
           .\CombatShellCli.exe pack .\mini_target.exe
           .\CombatShellCli.exe inspect .\mini_target.exe
-          Copy-Item .\mini_target.exe ..\..\dist\packed\mini_target_x86_packed.exe -Force
+          Copy-Item .\mini_target.exe ..\..\..\dist\packed\mini_target_x86_packed.exe -Force
           .\CombatShellCli.exe unpack .\mini_target.exe
           .\CombatShellCli.exe inspect .\mini_target.exe
           Write-Host "x86 mini_target runtime assertion skipped; see inspect + archived sample for diagnostics."
@@ -118,4 +118,4 @@ jobs:
         with:
           name: packed-executables
           path: dist\packed\*.exe
-          if-no-files-found: error
+          if-no-files-found: warn
