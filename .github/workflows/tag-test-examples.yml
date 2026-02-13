@@ -107,11 +107,37 @@ jobs:
       - name: Execute packed executables
         shell: pwsh
         run: |
-          function Assert-LaunchOrZeroExit([string]$path) {
+          $ErrorActionPreference = "Stop"
+
+          New-Item -ItemType Directory -Force -Path dist\diagnostics | Out-Null
+
+          function Enable-LocalDumps([string]$exeName) {
+            $dumpDir = (Resolve-Path "dist\diagnostics").Path
+            $dumpKey = "HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\$exeName"
+            New-Item -Path $dumpKey -Force | Out-Null
+            New-ItemProperty -Path $dumpKey -Name "DumpFolder" -PropertyType ExpandString -Value $dumpDir -Force | Out-Null
+            New-ItemProperty -Path $dumpKey -Name "DumpType" -PropertyType DWord -Value 2 -Force | Out-Null
+            New-ItemProperty -Path $dumpKey -Name "DumpCount" -PropertyType DWord -Value 10 -Force | Out-Null
+          }
+
+          function Export-CrashEvents([datetime]$startTime, [string]$label) {
+            $events = Get-WinEvent -FilterHashtable @{ LogName = "Application"; StartTime = $startTime.AddSeconds(-5) } -ErrorAction SilentlyContinue |
+              Where-Object { $_.ProviderName -in @("Application Error", "Windows Error Reporting") }
+            if ($events) {
+              $events |
+                Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message |
+                Format-List |
+                Out-File -FilePath "dist\diagnostics\${label}_events.txt" -Encoding utf8
+            }
+          }
+
+          function Assert-LaunchOrCollect([string]$path, [string]$label) {
+            $start = Get-Date
             $proc = Start-Process -FilePath $path -PassThru
-            Start-Sleep -Seconds 2
+            Start-Sleep -Seconds 3
             if ($proc.HasExited) {
               if ($proc.ExitCode -ne 0) {
+                Export-CrashEvents -startTime $start -label $label
                 throw "process exited with non-zero code: $path (exit=$($proc.ExitCode))"
               }
               return
@@ -119,14 +145,26 @@ jobs:
             Stop-Process -Id $proc.Id -Force
           }
 
-          Assert-LaunchOrZeroExit ".\dist\packed\calc_x64_packed.exe"
+          Enable-LocalDumps "calc_x64_packed.exe"
+          Enable-LocalDumps "mini_target_x64_packed.exe"
+          Enable-LocalDumps "mini_target_x86_packed.exe"
 
+          Assert-LaunchOrCollect ".\dist\packed\calc_x64_packed.exe" "calc_x64_packed"
+
+          $start64 = Get-Date
           $mini64 = .\dist\packed\mini_target_x64_packed.exe
-          if ($LASTEXITCODE -ne 0) { throw "mini_target_x64_packed run failed with $LASTEXITCODE" }
+          if ($LASTEXITCODE -ne 0) {
+            Export-CrashEvents -startTime $start64 -label "mini_target_x64_packed"
+            throw "mini_target_x64_packed run failed with $LASTEXITCODE"
+          }
           if ($mini64 -notmatch "mini-target-ok") { throw "mini_target_x64_packed output mismatch: $mini64" }
 
+          $start86 = Get-Date
           $mini86 = .\dist\packed\mini_target_x86_packed.exe
-          if ($LASTEXITCODE -ne 0) { throw "mini_target_x86_packed run failed with $LASTEXITCODE" }
+          if ($LASTEXITCODE -ne 0) {
+            Export-CrashEvents -startTime $start86 -label "mini_target_x86_packed"
+            throw "mini_target_x86_packed run failed with $LASTEXITCODE"
+          }
           if ($mini86 -notmatch "mini-target-ok") { throw "mini_target_x86_packed output mismatch: $mini86" }
 
       - name: Upload test samples artifact
@@ -160,3 +198,11 @@ jobs:
           name: packed-mini-target-x86
           path: dist\packed\mini_target_x86_packed.exe
           if-no-files-found: error
+
+      - name: Upload crash diagnostics artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packed-crash-diagnostics
+          path: dist\diagnostics\*
+          if-no-files-found: warn
