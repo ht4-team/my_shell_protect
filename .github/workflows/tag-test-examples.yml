@@ -77,8 +77,6 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist\packed | Out-Null
           New-Item -ItemType Directory -Force -Path dist\packed\x64 | Out-Null
           New-Item -ItemType Directory -Force -Path dist\packed\x86 | Out-Null
-          Copy-Item test\samples\x64\CombatShell.dll dist\packed\x64\CombatShell.dll -Force
-          Copy-Item test\samples\x86\CombatShell.dll dist\packed\x86\CombatShell.dll -Force
           Enable-LocalDumps "calc.exe"
           Enable-LocalDumps "mini_target.exe"
 
@@ -96,6 +94,8 @@ jobs:
           Copy-Item bin\MiniTarget.exe test\samples\x86\mini_target.exe -Force
           Copy-Item bin\CombatShellCli.exe test\samples\x86\CombatShellCli.exe -Force
           Copy-Item bin\CombatShell.dll test\samples\x86\CombatShell.dll -Force
+          Copy-Item test\samples\x64\CombatShell.dll dist\packed\x64\CombatShell.dll -Force
+          Copy-Item test\samples\x86\CombatShell.dll dist\packed\x86\CombatShell.dll -Force
 
           Push-Location test\samples\x64
           .\CombatShellCli.exe inspect .\calc.exe
