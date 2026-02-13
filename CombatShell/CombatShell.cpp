@@ -83,6 +83,20 @@ FnGetModuleHandleW MyGetModuleHandleW = nullptr;
 FnLoadLibraryExA MyLoadLibraryExA = nullptr;
 FnGetProcAddress MyGetProcAddress = nullptr;
 
+static void RefreshRuntimeImageBase()
+{
+	if (MyGetModuleHandleW) {
+		HMODULE moduleBase = MyGetModuleHandleW(NULL);
+		if (moduleBase) {
+#ifdef _WIN64
+			m_Dlllpbase = (DWORD64)moduleBase;
+#else
+			m_Dlllpbase = (DWORD)moduleBase;
+#endif
+		}
+	}
+}
+
 #ifdef SHELL_DIAGNOSTIC_ENABLED
 static void ShellDiagTrace(const char* stage)
 {
@@ -705,6 +719,8 @@ void WINAPI CombatShellEntry()
 	MyExitProcess = (FnExitProcess)puGetProcAddress(g_stud.s_Krenel32, 0x4FD18963);
 	// GetGetModuleW
 	MyGetModuleHandleW = (FnGetModuleHandleW)puGetProcAddress(g_stud.s_Krenel32, 0xF4E2F2C8);
+	RefreshRuntimeImageBase();
+	SHELL_TRACE("CombatShellEntry:imagebase_ready");
 	// GetCreateSolidBrush
 	//MyCreateSolidBrush = (FnCreateSolidBrush)puGetProcAddress(g_stud.s_Gdi32, 0xBB7420F9);
 	// GetUpdateData
@@ -1095,6 +1111,8 @@ void WINAPI VmEntry()
 	MyVirtualAlloc = (FnVirtualAlloc)puGetProcAddress(g_stud.s_Krenel32, 0x1EDE5967);
 	MyVirtualFree = (FnVirtualFree)puGetProcAddress(g_stud.s_Krenel32, 0x6144AA05);
 	MyGetModuleHandleW = (FnGetModuleHandleW)puGetProcAddress(g_stud.s_Krenel32, 0xF4E2F2C8);
+	RefreshRuntimeImageBase();
+	SHELL_TRACE("VmEntry:imagebase_ready");
 	// g_stud.s_User32 = (DWORD64)MyGetModuleHandleW(L"user32.dll");
 	g_hInstance = (HINSTANCE)MyGetModuleHandleW(NULL);
 	SHELL_TRACE("VmEntry:api_ready");
