@@ -258,7 +258,7 @@ __addrloop:
 	shr         edx, 7h;
 	or			ebx, edx;
 	add			ebx, eax;
-	mov			dword ptr [ebp - 4h], ebx		; count of data 
+	mov			dword ptr [rbp - 4h], ebx		; count of data 
 	inc			ecx;
 	jmp			__addrloop
 
