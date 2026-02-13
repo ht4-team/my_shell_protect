@@ -134,11 +134,19 @@ BOOL studData::RepairReloCationStud()
 			if (RelType[i].type == 10) {
 				PULONGLONG pAddress = (PULONGLONG)((DWORD64)m_studBase + pStuRelocation->VirtualAddress + RelType[i].offset);
 				VirtualProtect(pAddress, 8, PAGE_READWRITE, &OldAttribute);
-				*pAddress = *pAddress
-					- (DWORD64)m_studBase
-					- ((PIMAGE_SECTION_HEADER)m_dwStudSectionAddress64)->VirtualAddress
-					+ ((PIMAGE_SECTION_HEADER)m_dwNewSectionAddress64)->VirtualAddress
-					+ m_ImageBase64;
+				const DWORD64 studTextStart = (DWORD64)m_studBase + ((PIMAGE_SECTION_HEADER)m_dwStudSectionAddress64)->VirtualAddress;
+				const DWORD64 studTextEnd = studTextStart + ((PIMAGE_SECTION_HEADER)m_dwStudSectionAddress64)->Misc.VirtualSize;
+				const ULONGLONG oldValue = *pAddress;
+				if (oldValue >= studTextStart && oldValue < studTextEnd) {
+					*pAddress = oldValue
+						- (DWORD64)m_studBase
+						- ((PIMAGE_SECTION_HEADER)m_dwStudSectionAddress64)->VirtualAddress
+						+ ((PIMAGE_SECTION_HEADER)m_dwNewSectionAddress64)->VirtualAddress
+						+ m_ImageBase64;
+				}
+				else {
+					*pAddress = oldValue - (DWORD64)m_studBase + m_ImageBase64;
+				}
 				VirtualProtect(pAddress, 8, OldAttribute, &OldAttribute);
 			}
 #endif
