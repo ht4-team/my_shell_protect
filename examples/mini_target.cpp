@@ -1,6 +1,5 @@
-#include <stdio.h>
+#include <windows.h>
 
-int main() {
-    printf("mini-target-ok\n");
+int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     return 0;
 }
