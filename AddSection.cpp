@@ -137,7 +137,6 @@ BOOL AddSection::ModifySizeofImage()
 	if (pNt) {
 		const DWORD sectionAlignment = pNt->OptionalHeader.SectionAlignment ? pNt->OptionalHeader.SectionAlignment : 0x1000;
 		pNt->OptionalHeader.SizeOfImage = AlignUpDword(NewpSection->VirtualAddress + NewpSection->Misc.VirtualSize, sectionAlignment);
-		pNt->OptionalHeader.DllCharacteristics = 0x8000;
 		return TRUE;
 	}
 	return FALSE;
