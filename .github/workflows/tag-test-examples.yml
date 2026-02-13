@@ -49,6 +49,7 @@ jobs:
 
           New-Item -ItemType Directory -Force -Path test\samples\x64 | Out-Null
           New-Item -ItemType Directory -Force -Path test\samples\x86 | Out-Null
+          New-Item -ItemType Directory -Force -Path dist\packed | Out-Null
 
           # x64 sample: calc.exe + x64 shell
           if (Test-Path examples\calc.exe) {
@@ -71,6 +72,7 @@ jobs:
           .\CombatShellCli.exe pack .\calc.exe
           .\CombatShellCli.exe inspect .\calc.exe
           Assert-LaunchOrZeroExit ".\calc.exe"
+          Copy-Item .\calc.exe ..\..\dist\packed\calc_x64_packed.exe -Force
           .\CombatShellCli.exe unpack .\calc.exe
           .\CombatShellCli.exe inspect .\calc.exe
           Assert-LaunchOrZeroExit ".\calc.exe"
@@ -84,6 +86,7 @@ jobs:
           $packedMini64 = .\mini_target.exe
           if ($LASTEXITCODE -ne 0) { throw "x64 mini_target packed run failed with $LASTEXITCODE" }
           if ($packedMini64 -notmatch "mini-target-ok") { throw "x64 mini_target packed output mismatch: $packedMini64" }
+          Copy-Item .\mini_target.exe ..\..\dist\packed\mini_target_x64_packed.exe -Force
           .\CombatShellCli.exe unpack .\mini_target.exe
           .\CombatShellCli.exe inspect .\mini_target.exe
           $unpackedMini64 = .\mini_target.exe
@@ -95,22 +98,24 @@ jobs:
           .\CombatShellCli.exe inspect .\mini_target.exe
           .\CombatShellCli.exe pack .\mini_target.exe
           .\CombatShellCli.exe inspect .\mini_target.exe
+          Copy-Item .\mini_target.exe ..\..\dist\packed\mini_target_x86_packed.exe -Force
           .\CombatShellCli.exe unpack .\mini_target.exe
           .\CombatShellCli.exe inspect .\mini_target.exe
           Write-Host "x86 mini_target runtime assertion skipped; see inspect + archived sample for diagnostics."
           Pop-Location
 
-      - name: Archive test outputs
-        if: always()
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Compress-Archive -Path test\samples\* -DestinationPath dist\example-pack-test.zip -Force
-
-      - name: Upload test artifact
+      - name: Upload test samples artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: example-pack-test
-          path: dist\example-pack-test.zip
+          path: test\samples\*
+          if-no-files-found: error
+
+      - name: Upload packed executables artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packed-executables
+          path: dist\packed\*.exe
           if-no-files-found: error
