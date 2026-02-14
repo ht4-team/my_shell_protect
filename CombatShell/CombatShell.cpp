@@ -516,6 +516,97 @@ void UnCompression()
 	SHELL_TRACE("UnCompression:end");
 }
 
+static bool IsInOriginalSections(DWORD rva)
+{
+	PIMAGE_NT_HEADERS pNt = (PIMAGE_NT_HEADERS)(((PIMAGE_DOS_HEADER)m_Dlllpbase)->e_lfanew + (DWORD64)m_Dlllpbase);
+	if (!pNt) {
+		return false;
+	}
+	if (g_stud.s_SectionCount < 2) {
+		return false;
+	}
+	PIMAGE_SECTION_HEADER pSection = IMAGE_FIRST_SECTION(pNt);
+	for (DWORD i = 0; i < g_stud.s_SectionCount - 2; ++i)
+	{
+		DWORD secStart = pSection->VirtualAddress;
+		DWORD secSize = pSection->Misc.VirtualSize ? pSection->Misc.VirtualSize : pSection->SizeOfRawData;
+		DWORD secEnd = secStart + secSize;
+		if (rva >= secStart && rva < secEnd) {
+			return true;
+		}
+		++pSection;
+	}
+	return false;
+}
+
+void ApplyBaseRelocAfterUnpack()
+{
+	SHELL_TRACE("ApplyReloc:start");
+	PIMAGE_NT_HEADERS pNt = (PIMAGE_NT_HEADERS)(((PIMAGE_DOS_HEADER)m_Dlllpbase)->e_lfanew + (DWORD64)m_Dlllpbase);
+	if (!pNt) {
+		SHELL_TRACE("ApplyReloc:no_nt");
+		return;
+	}
+	DWORD relocRva = pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress;
+	DWORD relocSize = pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size;
+	if (relocRva == 0 || relocSize == 0) {
+		SHELL_TRACE("ApplyReloc:no_dir");
+		return;
+	}
+	ULONGLONG delta = (ULONGLONG)m_Dlllpbase - (ULONGLONG)pNt->OptionalHeader.ImageBase;
+	SHELL_TRACE_HEX("ApplyReloc:delta", delta);
+	if (delta == 0) {
+		SHELL_TRACE("ApplyReloc:delta_zero");
+		return;
+	}
+
+	PIMAGE_BASE_RELOCATION pRel = (PIMAGE_BASE_RELOCATION)(m_Dlllpbase + relocRva);
+	BYTE* relocEnd = (BYTE*)pRel + relocSize;
+	DWORD patched = 0;
+	while ((BYTE*)pRel < relocEnd && pRel->SizeOfBlock >= sizeof(IMAGE_BASE_RELOCATION) && pRel->VirtualAddress != 0)
+	{
+		DWORD count = (pRel->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(WORD);
+		WORD* entries = (WORD*)(pRel + 1);
+		for (DWORD i = 0; i < count; ++i)
+		{
+			WORD type = (entries[i] >> 12) & 0xF;
+			WORD off = entries[i] & 0x0FFF;
+#ifdef _WIN64
+			if (type != IMAGE_REL_BASED_DIR64) {
+				continue;
+			}
+#else
+			if (type != IMAGE_REL_BASED_HIGHLOW) {
+				continue;
+			}
+#endif
+			DWORD targetRva = pRel->VirtualAddress + off;
+			if (!IsInOriginalSections(targetRva)) {
+				continue;
+			}
+#ifdef _WIN64
+			ULONGLONG* pTarget = (ULONGLONG*)(m_Dlllpbase + targetRva);
+			const SIZE_T ptrSize = sizeof(ULONGLONG);
+			const ULONGLONG relocDelta = delta;
+#else
+			DWORD* pTarget = (DWORD*)(m_Dlllpbase + targetRva);
+			const SIZE_T ptrSize = sizeof(DWORD);
+			const DWORD relocDelta = (DWORD)delta;
+#endif
+			DWORD old = 0;
+			if (!MyVirtualProtect(pTarget, ptrSize, PAGE_READWRITE, &old)) {
+				continue;
+			}
+			*pTarget += relocDelta;
+			MyVirtualProtect(pTarget, ptrSize, old, &old);
+			++patched;
+		}
+		pRel = (PIMAGE_BASE_RELOCATION)((BYTE*)pRel + pRel->SizeOfBlock);
+	}
+	SHELL_TRACE_HEX("ApplyReloc:patched", patched);
+	SHELL_TRACE("ApplyReloc:end");
+}
+
 void RepairTheIAT()
 {
 	SHELL_TRACE("RepairTheIAT:start");
@@ -821,6 +912,8 @@ void WINAPI CombatShellEntry()
 	// Stable shell path: unpack, repair IAT, then jump to original entry point.
 	SHELL_TRACE("CombatShellEntry:before_unpack");
 	UnCompression();
+	SHELL_TRACE("CombatShellEntry:before_reloc");
+	ApplyBaseRelocAfterUnpack();
 	SHELL_TRACE("CombatShellEntry:before_iat");
 	RepairTheIAT();
 	SHELL_TRACE("CombatShellEntry:before_oep");
