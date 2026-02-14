@@ -544,6 +544,7 @@ void RepairTheIAT()
 	};
 #endif
 	DWORD Att_old = 0;
+	DWORD iatTraceCount = 0;
 	while (pImport->Name)
 	{
 		char* Name = (char*)(pImport->Name + dwMoudle);
@@ -596,6 +597,11 @@ void RepairTheIAT()
 			memcpy(AllocMem, OpCode, 0x20);
 			pThunkIAT->u1.Function = (ULONGLONG)AllocMem;
 #endif
+			if (iatTraceCount < 12) {
+				SHELL_TRACE_HEX("RepairTheIAT:iat_rva", (DWORD64)((DWORD64)pThunkIAT - dwMoudle));
+				SHELL_TRACE_HEX("RepairTheIAT:fun", (DWORD64)FunAddress);
+				++iatTraceCount;
+			}
 			MyVirtualProtect((PVOID64)pThunkIAT, 0x16, Att_old, &Att_old);
 			++pThunkINT;
 			++pThunkIAT;
