@@ -222,27 +222,13 @@ BOOL CompressionData::CompressSectionData()
 		DWORD blen = 0;
 		DWORD dwCompressionSize = 0;
 #ifdef _WIN64
-		const bool useRawCopyMode = (pNt->OptionalHeader.FileAlignment <= 0x200);
-		if (useRawCopyMode) {
-			g_stu->s_SaveExportTabRVA = 1;
-			blen = pSections->SizeOfRawData;
-			if ((buf = (char*)malloc(sizeof(char) * blen)) == NULL)
-			{
-				AfxMessageBox(L"no enough memory!\n");
-				return -1;
-			}
-			memcpy(buf, DataAddress, blen);
-			dwCompressionSize = blen;
+		blen = LZ4_compressBound(pSections->SizeOfRawData);
+		if ((buf = (char*)malloc(sizeof(char) * blen)) == NULL)
+		{
+			AfxMessageBox(L"no enough memory!\n");
+			return -1;
 		}
-		else {
-			blen = LZ4_compressBound(pSections->SizeOfRawData);
-			if ((buf = (char*)malloc(sizeof(char) * blen)) == NULL)
-			{
-				AfxMessageBox(L"no enough memory!\n");
-				return -1;
-			}
-			dwCompressionSize = LZ4_compress_default((char*)DataAddress, buf, pSections->SizeOfRawData, blen);
-		}
+		dwCompressionSize = LZ4_compress_default((char*)DataAddress, buf, pSections->SizeOfRawData, blen);
 #else
 		blen = LZ4_compressBound(pSections->SizeOfRawData);
 		if ((buf = (char*)malloc(sizeof(char) * blen)) == NULL)
