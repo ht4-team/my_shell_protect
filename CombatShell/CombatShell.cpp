@@ -433,7 +433,6 @@ void UnCompression()
 
 	DWORD Att_olds = 0;
 	DWORD64 SectionAddress = g_stud.s_CompressionSectionRva;
-	qlz_state_decompress *state_decompress = (qlz_state_decompress *)MyVirtualAlloc(NULL, sizeof(qlz_state_decompress), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 	for (DWORD i = 0; i < g_stud.s_SectionCount - 2; ++i)
 	{
 		BYTE* Address = (BYTE*)(pSections->VirtualAddress + m_Dlllpbase);
@@ -441,12 +440,8 @@ void UnCompression()
 		MyVirtualProtect(Address, g_stud.s_SectionOffsetAndSize[i][0], PAGE_EXECUTE_READWRITE, &Att_old);
 		MyVirtualProtect((void*)SectionAddress, g_stud.s_blen[i], PAGE_EXECUTE_READWRITE, &Att_olds);
 
-#ifdef _WIN64
-		int nRet = qlz_decompress((char*)(SectionAddress + m_Dlllpbase), (char*)(pSections->VirtualAddress + m_Dlllpbase), state_decompress);
-#else
 		// 缓冲区  RVA+加载基址  缓冲区大小  压缩过去的大小
 		int nRet = LZ4_decompress_safe((char*)(SectionAddress + m_Dlllpbase), (char*)(pSections->VirtualAddress + m_Dlllpbase), g_stud.s_blen[i], pSections->SizeOfRawData);
-#endif
 		MyVirtualProtect(Address, g_stud.s_SectionOffsetAndSize[i][0], Att_old, &Att_old);
 		MyVirtualProtect((void*)SectionAddress, g_stud.s_blen[i], Att_olds, &Att_olds);
 		++pSections;
