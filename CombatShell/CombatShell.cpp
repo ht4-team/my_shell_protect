@@ -730,6 +730,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 					RepairTheIAT();
 #ifdef _WIN64
 					CodeExecEntry(g_stud.s_dwOepBase + m_Dlllpbase);
+					MyExitProcess(0);
 #else
 					__asm {
 						mov	 esi, g_stud.s_dwOepBase;
@@ -741,6 +742,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 						add  esi, eax;
 						call esi;
 					}
+					MyExitProcess(0);
 #endif
 				}
 			}
@@ -797,6 +799,7 @@ DWORD ProcessCallBack(LPVOID lpThreadParameter)
 #ifdef  _WIN64
 			MySleep(2000);
 			CodeExecEntry(g_stud.s_dwOepBase + m_Dlllpbase);
+			MyExitProcess(0);
 #else
 			__asm {
 				mov	 esi, g_stud.s_dwOepBase;
@@ -808,6 +811,7 @@ DWORD ProcessCallBack(LPVOID lpThreadParameter)
 					add  esi, eax;
 				call esi;
 			}
+			MyExitProcess(0);
 #endif
 			break;
 		}
@@ -900,6 +904,7 @@ void WINAPI CombatShellEntry()
 	SHELL_TRACE("CombatShellEntry:before_oep");
 #ifdef _WIN64
 	CodeExecEntry(g_stud.s_dwOepBase + m_Dlllpbase);
+	MyExitProcess(0);
 #else
 	__asm {
 		mov	 esi, g_stud.s_dwOepBase;
@@ -911,6 +916,7 @@ void WINAPI CombatShellEntry()
 		add  esi, eax;
 		call esi;
 	}
+	MyExitProcess(0);
 #endif
 	SHELL_TRACE("CombatShellEntry:return");
 }
