@@ -548,8 +548,11 @@ void RepairTheIAT()
 	{
 		char* Name = (char*)(pImport->Name + dwMoudle);
 		SHELL_TRACE_HEX("RepairTheIAT:dll_name_rva", pImport->Name);
+		SHELL_TRACE_HEX("RepairTheIAT:oft_rva", pImport->OriginalFirstThunk);
+		SHELL_TRACE_HEX("RepairTheIAT:ft_rva", pImport->FirstThunk);
 		HMODULE hModuledll = MyLoadLibraryExA(Name, NULL, NULL);
-		PIMAGE_THUNK_DATA pThunkINT = (PIMAGE_THUNK_DATA)(pImport->OriginalFirstThunk + dwMoudle);
+		DWORD64 thunkRva = pImport->OriginalFirstThunk ? pImport->OriginalFirstThunk : pImport->FirstThunk;
+		PIMAGE_THUNK_DATA pThunkINT = (PIMAGE_THUNK_DATA)(thunkRva + dwMoudle);
 		PIMAGE_THUNK_DATA pThunkIAT = (PIMAGE_THUNK_DATA)(pImport->FirstThunk + dwMoudle);
 		while (pThunkINT->u1.AddressOfData)
 		{
