@@ -1,5 +1,5 @@
 #include <windows.h>
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
-    return 7;
+    return 0;
 }

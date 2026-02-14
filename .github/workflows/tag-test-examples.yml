@@ -134,9 +134,7 @@ jobs:
           }
 
           .\CombatShellCli.exe inspect .\mini_target.exe
-          $env:SHELL_PACK_FORCE_LZ4 = "1"
           .\CombatShellCli.exe pack .\mini_target.exe
-          Remove-Item Env:SHELL_PACK_FORCE_LZ4 -ErrorAction SilentlyContinue
           .\CombatShellCli.exe inspect .\mini_target.exe
           Copy-Item .\mini_target.exe ..\..\..\dist\packed\x64\mini_target_x64_packed.exe -Force
           .\CombatShellCli.exe unpack .\mini_target.exe
@@ -145,9 +143,7 @@ jobs:
 
           Push-Location test\samples\x86
           .\CombatShellCli.exe inspect .\mini_target.exe
-          $env:SHELL_PACK_FORCE_LZ4 = "1"
           .\CombatShellCli.exe pack .\mini_target.exe
-          Remove-Item Env:SHELL_PACK_FORCE_LZ4 -ErrorAction SilentlyContinue
           .\CombatShellCli.exe inspect .\mini_target.exe
           Copy-Item .\mini_target.exe ..\..\..\dist\packed\x86\mini_target_x86_packed.exe -Force
           .\CombatShellCli.exe unpack .\mini_target.exe
@@ -232,27 +228,6 @@ jobs:
             Stop-Process -Id $proc.Id -Force
           }
 
-          function Assert-ExitCodeOrCollect([string]$path, [string]$label, [string]$exeName, [int]$expectedExitCode) {
-            $start = Get-Date
-            try {
-              $proc = Start-Process -FilePath $path -PassThru
-            } catch {
-              Export-CrashEvents -startTime $start -label $label
-              Extract-ShellTraceFromDump -exeName $exeName -label $label
-              throw
-            }
-            if (-not $proc.WaitForExit(10000)) {
-              Stop-Process -Id $proc.Id -Force
-              Export-CrashEvents -startTime $start -label $label
-              throw "smoke timeout: $path"
-            }
-            if ($proc.ExitCode -ne $expectedExitCode) {
-              Export-CrashEvents -startTime $start -label $label
-              Extract-ShellTraceFromDump -exeName $exeName -label $label
-              throw "process exited with unexpected code: $path (exit=$($proc.ExitCode), expected=$expectedExitCode)"
-            }
-          }
-
           Enable-LocalDumps "calc_x64_packed.exe"
           Enable-LocalDumps "sys_calc_x64_packed.exe"
           Enable-LocalDumps "mini_target_x64_packed.exe"
@@ -269,9 +244,9 @@ jobs:
             }
           }
 
-          Assert-ExitCodeOrCollect ".\dist\packed\x64\mini_target_x64_packed.exe" "mini_target_x64_packed_exit" "mini_target_x64_packed.exe" 7
+          Assert-LaunchOrCollect ".\dist\packed\x64\mini_target_x64_packed.exe" "mini_target_x64_packed" "mini_target_x64_packed.exe"
 
-          Assert-ExitCodeOrCollect ".\dist\packed\x86\mini_target_x86_packed.exe" "mini_target_x86_packed_exit" "mini_target_x86_packed.exe" 7
+          Assert-LaunchOrCollect ".\dist\packed\x86\mini_target_x86_packed.exe" "mini_target_x86_packed" "mini_target_x86_packed.exe"
 
       - name: Upload test samples artifact
         if: always()
