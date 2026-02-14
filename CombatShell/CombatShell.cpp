@@ -472,7 +472,6 @@ void UnCompression()
 		BOOL srcVp = MyVirtualProtect((void*)(SectionAddress + m_Dlllpbase), g_stud.s_blen[i], PAGE_EXECUTE_READWRITE, &Att_olds);
 		SHELL_TRACE_HEX("UnCompression:vp_dst", dstVp);
 		SHELL_TRACE_HEX("UnCompression:vp_src", srcVp);
-		SHELL_TRACE_HEX("UnCompression:old_dst_prot", Att_old);
 		if (!dstVp || !srcVp) {
 			SHELL_TRACE("UnCompression:vp_fail");
 			return;
@@ -509,36 +508,7 @@ void UnCompression()
 		}
 #endif
 		SHELL_TRACE_HEX("UnCompression:ret", (DWORD64)nRet);
-		DWORD newProt = PAGE_READONLY;
-		const bool canExec = (pSections->Characteristics & IMAGE_SCN_MEM_EXECUTE) != 0;
-		const bool canRead = (pSections->Characteristics & IMAGE_SCN_MEM_READ) != 0;
-		const bool canWrite = (pSections->Characteristics & IMAGE_SCN_MEM_WRITE) != 0;
-		if (canExec) {
-			if (canWrite) {
-				newProt = PAGE_EXECUTE_READWRITE;
-			}
-			else if (canRead) {
-				newProt = PAGE_EXECUTE_READ;
-			}
-			else {
-				newProt = PAGE_EXECUTE;
-			}
-		}
-		else {
-			if (canWrite) {
-				newProt = PAGE_READWRITE;
-			}
-			else if (canRead) {
-				newProt = PAGE_READONLY;
-			}
-			else {
-				newProt = PAGE_NOACCESS;
-			}
-		}
-		SHELL_TRACE_HEX("UnCompression:new_dst_prot", newProt);
-		if (!MyVirtualProtect(Address, g_stud.s_SectionOffsetAndSize[i][0], newProt, &Att_old)) {
-			MyVirtualProtect(Address, g_stud.s_SectionOffsetAndSize[i][0], Att_old, &Att_old);
-		}
+		MyVirtualProtect(Address, g_stud.s_SectionOffsetAndSize[i][0], Att_old, &Att_old);
 		MyVirtualProtect((void*)(SectionAddress + m_Dlllpbase), g_stud.s_blen[i], Att_olds, &Att_olds);
 		++pSections;
 		SectionAddress += g_stud.s_blen[i];
