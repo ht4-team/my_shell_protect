@@ -204,8 +204,8 @@ BOOL CompressionData::CompressSectionData()
 		AfxMessageBox(L"CombatShell 打开创建失败.");
 		return false;
 	}
-	// 不压缩新增的区段（加壳区段）
-	for (DWORD i = 0; i < dSectionCount - 2; ++i)
+	// 当前阶段仅新增了 .VMP，需跳过 1 个新增区段。
+	for (DWORD i = 0; i < dSectionCount - 1; ++i)
 	{
 		DWORD DataSize = pSections->SizeOfRawData;
 		if (pSections->SizeOfRawData == 0)
