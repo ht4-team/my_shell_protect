@@ -7,6 +7,7 @@
 #include "lz4/include/lz4.h"
 #include "quick/quicklz.h"
 #include <io.h>
+#include <stdlib.h>
 
 #define NEWSECITONNAME ".VMP"
 
@@ -222,7 +223,15 @@ BOOL CompressionData::CompressSectionData()
 		DWORD blen = 0;
 		DWORD dwCompressionSize = 0;
 #ifdef _WIN64
-		const bool useRawCopyMode = (pNt->OptionalHeader.FileAlignment <= 0x200);
+		bool useRawCopyMode = (pNt->OptionalHeader.FileAlignment <= 0x200);
+		const char* forceLz4 = getenv("SHELL_PACK_FORCE_LZ4");
+		const char* forceRaw = getenv("SHELL_PACK_FORCE_RAW");
+		if (forceLz4 && forceLz4[0] == '1') {
+			useRawCopyMode = false;
+		}
+		if (forceRaw && forceRaw[0] == '1') {
+			useRawCopyMode = true;
+		}
 		if (useRawCopyMode) {
 			g_stu->s_SaveExportTabRVA = 1;
 			blen = pSections->SizeOfRawData;

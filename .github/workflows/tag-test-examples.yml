@@ -130,7 +130,9 @@ jobs:
           }
 
           .\CombatShellCli.exe inspect .\mini_target.exe
+          $env:SHELL_PACK_FORCE_LZ4 = "1"
           .\CombatShellCli.exe pack .\mini_target.exe
+          Remove-Item Env:SHELL_PACK_FORCE_LZ4 -ErrorAction SilentlyContinue
           .\CombatShellCli.exe inspect .\mini_target.exe
           Copy-Item .\mini_target.exe ..\..\..\dist\packed\x64\mini_target_x64_packed.exe -Force
           .\CombatShellCli.exe unpack .\mini_target.exe
@@ -139,7 +141,9 @@ jobs:
 
           Push-Location test\samples\x86
           .\CombatShellCli.exe inspect .\mini_target.exe
+          $env:SHELL_PACK_FORCE_LZ4 = "1"
           .\CombatShellCli.exe pack .\mini_target.exe
+          Remove-Item Env:SHELL_PACK_FORCE_LZ4 -ErrorAction SilentlyContinue
           .\CombatShellCli.exe inspect .\mini_target.exe
           Copy-Item .\mini_target.exe ..\..\..\dist\packed\x86\mini_target_x86_packed.exe -Force
           .\CombatShellCli.exe unpack .\mini_target.exe
