@@ -366,21 +366,7 @@ CodeExecEntry	PROC
 	mov		rcx, 7
 	mov		rdi, rsp
 	rep stos	qword ptr [rdi]
-
-
-
-	xor		rax, rax			; OEP + ImageBase = code.exec.entry
-	add		rax, 20000000h		; 0x140000000 
-	add		rax, 20000000h		
-	add		rax, 20000000h
-	add		rax, 20000000h
-	add		rax, 20000000h
-	add		rax, 20000000h
-	add		rax, 20000000h
-	add		rax, 20000000h
-	add		rax, 20000000h
-	add		rax, 20000000h
-	add		rsi, rax
+	; rcx carries absolute OEP VA from caller.
 	call	rsi
 
 

@@ -729,7 +729,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 					UnCompression();
 					RepairTheIAT();
 #ifdef _WIN64
-					CodeExecEntry(g_stud.s_dwOepBase);
+					CodeExecEntry(g_stud.s_dwOepBase + m_Dlllpbase);
 #else
 					__asm {
 						push esi;
@@ -800,7 +800,7 @@ DWORD ProcessCallBack(LPVOID lpThreadParameter)
 			RepairTheIAT();
 #ifdef  _WIN64
 			MySleep(2000);
-			CodeExecEntry(g_stud.s_dwOepBase);
+			CodeExecEntry(g_stud.s_dwOepBase + m_Dlllpbase);
 #else
 			__asm {
 				push esi;
@@ -907,7 +907,7 @@ void WINAPI CombatShellEntry()
 	RepairTheIAT();
 	SHELL_TRACE("CombatShellEntry:before_oep");
 #ifdef _WIN64
-	CodeExecEntry(g_stud.s_dwOepBase);
+	CodeExecEntry(g_stud.s_dwOepBase + m_Dlllpbase);
 #else
 	__asm {
 		push esi;
