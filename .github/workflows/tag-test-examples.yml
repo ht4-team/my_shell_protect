@@ -154,7 +154,6 @@ jobs:
 
           New-Item -ItemType Directory -Force -Path dist\diagnostics | Out-Null
           New-Item -ItemType Directory -Force -Path dist\packed\calc_isolated | Out-Null
-          New-Item -ItemType Directory -Force -Path dist\smoke | Out-Null
 
           function Enable-LocalDumps([string]$exeName) {
             $dumpDir = (Resolve-Path "dist\diagnostics").Path
@@ -227,10 +226,11 @@ jobs:
 
           function Assert-SmokeOrCollect([string]$path, [string]$label, [string]$exeName) {
             $start = Get-Date
-            $smokeOut = ".\dist\smoke\${label}.txt"
+            $workDir = Split-Path -Parent $path
+            $smokeOut = Join-Path $workDir "mini_target_smoke.txt"
             if (Test-Path $smokeOut) { Remove-Item $smokeOut -Force }
             try {
-              $proc = Start-Process -FilePath $path -ArgumentList @("--smoke", "--out", $smokeOut) -PassThru
+              $proc = Start-Process -FilePath $path -ArgumentList @("--smoke") -WorkingDirectory $workDir -PassThru
             } catch {
               Export-CrashEvents -startTime $start -label $label
               Extract-ShellTraceFromDump -exeName $exeName -label $label

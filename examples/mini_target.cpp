@@ -1,14 +1,8 @@
 #include <windows.h>
-#include <shellapi.h>
-#pragma comment(lib, "shell32.lib")
+#include <wchar.h>
 
-static int RunSmokeMode(int argc, LPWSTR* argv) {
+static int RunSmokeMode() {
     LPCWSTR outPath = L"mini_target_smoke.txt";
-    for (int i = 1; i < argc; ++i) {
-        if (lstrcmpiW(argv[i], L"--out") == 0 && i + 1 < argc) {
-            outPath = argv[++i];
-        }
-    }
 
     HANDLE hFile = CreateFileW(
         outPath,
@@ -34,27 +28,9 @@ static int RunSmokeMode(int argc, LPWSTR* argv) {
 }
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
-    int argc = 0;
-    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    if (!argv || argc <= 1) {
-        if (argv) {
-            LocalFree(argv);
-        }
-        return 0;
+    LPCWSTR cmd = GetCommandLineW();
+    if (cmd && wcsstr(cmd, L"--smoke")) {
+        return RunSmokeMode();
     }
-
-    int ret = 0;
-    bool smoke = false;
-    for (int i = 1; i < argc; ++i) {
-        if (lstrcmpiW(argv[i], L"--smoke") == 0) {
-            smoke = true;
-            break;
-        }
-    }
-    if (smoke) {
-        ret = RunSmokeMode(argc, argv);
-    }
-
-    LocalFree(argv);
-    return ret;
+    return 0;
 }
