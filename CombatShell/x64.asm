@@ -355,9 +355,11 @@ puGetProcAddress ENDP
 ;
 CodeExecEntry	PROC
 	; rcx carries absolute OEP VA from caller.
-	; Remove caller return address so control flow matches a direct tail transfer.
-	add		rsp, 8
-	jmp		rcx
+	; Use normal Win64 call semantics so targets that return can unwind safely.
+	sub		rsp, 28h
+	call	rcx
+	add		rsp, 28h
+	ret
 CodeExecEntry	ENDP
 
 ;--------------------------------------------------------

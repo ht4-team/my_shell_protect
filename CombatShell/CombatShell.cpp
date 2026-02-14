@@ -739,7 +739,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 						add	 eax, 0x200000;
 						sub  eax, 0x200000;
 						add  esi, eax;
-						jmp	 esi;
+						call esi;
 					}
 #endif
 				}
@@ -806,7 +806,7 @@ DWORD ProcessCallBack(LPVOID lpThreadParameter)
 				add	 eax, 0x200000;
 				sub  eax, 0x200000
 					add  esi, eax;
-				jmp	 esi;
+				call esi;
 			}
 #endif
 			break;
@@ -909,7 +909,7 @@ void WINAPI CombatShellEntry()
 		add	 eax, 0x200000;
 		sub  eax, 0x200000;
 		add  esi, eax;
-		jmp	 esi;
+		call esi;
 	}
 #endif
 	SHELL_TRACE("CombatShellEntry:return");
