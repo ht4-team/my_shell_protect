@@ -83,6 +83,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist\packed\x64 | Out-Null
           New-Item -ItemType Directory -Force -Path dist\packed\x86 | Out-Null
           Enable-LocalDumps "calc.exe"
+          Enable-LocalDumps "sys_calc.exe"
           Enable-LocalDumps "mini_target.exe"
 
           # x64 sample: calc.exe + x64 shell
@@ -90,6 +91,9 @@ jobs:
             Copy-Item examples\calc.exe test\samples\x64\calc.exe -Force
           } else {
             Copy-Item bin\x64\MiniTarget.exe test\samples\x64\calc.exe -Force
+          }
+          if (Test-Path "$env:WINDIR\System32\calc.exe") {
+            Copy-Item "$env:WINDIR\System32\calc.exe" test\samples\x64\sys_calc.exe -Force
           }
           Copy-Item bin\x64\MiniTarget.exe test\samples\x64\mini_target.exe -Force
           Copy-Item bin\x64\CombatShellCli.exe test\samples\x64\CombatShellCli.exe -Force
@@ -112,6 +116,18 @@ jobs:
           .\CombatShellCli.exe unpack .\calc.exe
           .\CombatShellCli.exe inspect .\calc.exe
           Assert-LaunchOrCollect ".\calc.exe" "calc_x64_unpacked"
+
+          if (Test-Path .\sys_calc.exe) {
+            .\CombatShellCli.exe inspect .\sys_calc.exe
+            Assert-LaunchOrCollect ".\sys_calc.exe" "sys_calc_x64_baseline"
+            .\CombatShellCli.exe pack .\sys_calc.exe
+            .\CombatShellCli.exe inspect .\sys_calc.exe
+            Copy-Item .\sys_calc.exe ..\..\..\dist\packed\x64\sys_calc_x64_packed.exe -Force
+            Assert-LaunchOrCollect ".\sys_calc.exe" "sys_calc_x64_packed"
+            .\CombatShellCli.exe unpack .\sys_calc.exe
+            .\CombatShellCli.exe inspect .\sys_calc.exe
+            Assert-LaunchOrCollect ".\sys_calc.exe" "sys_calc_x64_unpacked"
+          }
 
           .\CombatShellCli.exe inspect .\mini_target.exe
           .\CombatShellCli.exe pack .\mini_target.exe
@@ -138,6 +154,7 @@ jobs:
 
           New-Item -ItemType Directory -Force -Path dist\diagnostics | Out-Null
           New-Item -ItemType Directory -Force -Path dist\packed\calc_isolated | Out-Null
+          New-Item -ItemType Directory -Force -Path dist\smoke | Out-Null
 
           function Enable-LocalDumps([string]$exeName) {
             $dumpDir = (Resolve-Path "dist\diagnostics").Path
@@ -208,17 +225,52 @@ jobs:
             Stop-Process -Id $proc.Id -Force
           }
 
+          function Assert-SmokeOrCollect([string]$path, [string]$label, [string]$exeName) {
+            $start = Get-Date
+            $smokeOut = ".\dist\smoke\${label}.txt"
+            if (Test-Path $smokeOut) { Remove-Item $smokeOut -Force }
+            try {
+              $proc = Start-Process -FilePath $path -ArgumentList @("--smoke", "--out", $smokeOut) -PassThru
+            } catch {
+              Export-CrashEvents -startTime $start -label $label
+              Extract-ShellTraceFromDump -exeName $exeName -label $label
+              throw
+            }
+            if (-not $proc.WaitForExit(10000)) {
+              Stop-Process -Id $proc.Id -Force
+              Export-CrashEvents -startTime $start -label $label
+              throw "smoke timeout: $path"
+            }
+            if ($proc.ExitCode -ne 0) {
+              Export-CrashEvents -startTime $start -label $label
+              Extract-ShellTraceFromDump -exeName $exeName -label $label
+              throw "smoke exited with non-zero code: $path (exit=$($proc.ExitCode))"
+            }
+            if (-not (Test-Path $smokeOut)) {
+              Export-CrashEvents -startTime $start -label $label
+              throw "smoke output missing: $smokeOut"
+            }
+            $content = (Get-Content -Raw $smokeOut).Trim()
+            if ($content -ne "mini-target-smoke-ok") {
+              throw "smoke output mismatch: $smokeOut value=[$content]"
+            }
+          }
+
           Enable-LocalDumps "calc_x64_packed.exe"
+          Enable-LocalDumps "sys_calc_x64_packed.exe"
           Enable-LocalDumps "mini_target_x64_packed.exe"
           Enable-LocalDumps "mini_target_x86_packed.exe"
 
           Copy-Item .\dist\packed\x64\calc_x64_packed.exe .\dist\packed\calc_isolated\calc_x64_packed.exe -Force
           Assert-LaunchOrCollect ".\dist\packed\calc_isolated\calc_x64_packed.exe" "calc_x64_packed_isolated" "calc_x64_packed.exe"
           Assert-LaunchOrCollect ".\dist\packed\x64\calc_x64_packed.exe" "calc_x64_packed" "calc_x64_packed.exe"
+          if (Test-Path .\dist\packed\x64\sys_calc_x64_packed.exe) {
+            Assert-LaunchOrCollect ".\dist\packed\x64\sys_calc_x64_packed.exe" "sys_calc_x64_packed" "sys_calc_x64_packed.exe"
+          }
 
-          Assert-LaunchOrCollect ".\dist\packed\x64\mini_target_x64_packed.exe" "mini_target_x64_packed" "mini_target_x64_packed.exe"
+          Assert-SmokeOrCollect ".\dist\packed\x64\mini_target_x64_packed.exe" "mini_target_x64_packed_smoke" "mini_target_x64_packed.exe"
 
-          Assert-LaunchOrCollect ".\dist\packed\x86\mini_target_x86_packed.exe" "mini_target_x86_packed" "mini_target_x86_packed.exe"
+          Assert-SmokeOrCollect ".\dist\packed\x86\mini_target_x86_packed.exe" "mini_target_x86_packed_smoke" "mini_target_x86_packed.exe"
 
       - name: Upload test samples artifact
         if: always()
@@ -235,6 +287,14 @@ jobs:
           name: packed-calc-x64
           path: dist\packed\x64\calc_x64_packed.exe
           if-no-files-found: error
+
+      - name: Upload packed sys calc artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packed-sys-calc-x64
+          path: dist\packed\x64\sys_calc_x64_packed.exe
+          if-no-files-found: ignore
 
       - name: Upload packed mini x64 artifact
         if: always()
@@ -258,4 +318,4 @@ jobs:
         with:
           name: packed-crash-diagnostics
           path: dist\diagnostics\*
-          if-no-files-found: warn
+          if-no-files-found: ignore

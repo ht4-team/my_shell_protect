@@ -516,29 +516,6 @@ void UnCompression()
 	SHELL_TRACE("UnCompression:end");
 }
 
-static bool IsInOriginalSections(DWORD rva)
-{
-	PIMAGE_NT_HEADERS pNt = (PIMAGE_NT_HEADERS)(((PIMAGE_DOS_HEADER)m_Dlllpbase)->e_lfanew + (DWORD64)m_Dlllpbase);
-	if (!pNt) {
-		return false;
-	}
-	if (g_stud.s_SectionCount < 2) {
-		return false;
-	}
-	PIMAGE_SECTION_HEADER pSection = IMAGE_FIRST_SECTION(pNt);
-	for (DWORD i = 0; i < g_stud.s_SectionCount - 2; ++i)
-	{
-		DWORD secStart = pSection->VirtualAddress;
-		DWORD secSize = pSection->Misc.VirtualSize ? pSection->Misc.VirtualSize : pSection->SizeOfRawData;
-		DWORD secEnd = secStart + secSize;
-		if (rva >= secStart && rva < secEnd) {
-			return true;
-		}
-		++pSection;
-	}
-	return false;
-}
-
 void ApplyBaseRelocAfterUnpack()
 {
 	SHELL_TRACE("ApplyReloc:start");
@@ -549,6 +526,8 @@ void ApplyBaseRelocAfterUnpack()
 	}
 	DWORD relocRva = pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress;
 	DWORD relocSize = pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size;
+	SHELL_TRACE_HEX("ApplyReloc:dir_rva", relocRva);
+	SHELL_TRACE_HEX("ApplyReloc:dir_size", relocSize);
 	if (relocRva == 0 || relocSize == 0) {
 		SHELL_TRACE("ApplyReloc:no_dir");
 		return;
@@ -563,6 +542,9 @@ void ApplyBaseRelocAfterUnpack()
 	PIMAGE_BASE_RELOCATION pRel = (PIMAGE_BASE_RELOCATION)(m_Dlllpbase + relocRva);
 	BYTE* relocEnd = (BYTE*)pRel + relocSize;
 	DWORD patched = 0;
+	DWORD skipType = 0;
+	DWORD skipRange = 0;
+	DWORD skipProtect = 0;
 	while ((BYTE*)pRel < relocEnd && pRel->SizeOfBlock >= sizeof(IMAGE_BASE_RELOCATION) && pRel->VirtualAddress != 0)
 	{
 		DWORD count = (pRel->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(WORD);
@@ -573,15 +555,18 @@ void ApplyBaseRelocAfterUnpack()
 			WORD off = entries[i] & 0x0FFF;
 #ifdef _WIN64
 			if (type != IMAGE_REL_BASED_DIR64) {
+				++skipType;
 				continue;
 			}
 #else
 			if (type != IMAGE_REL_BASED_HIGHLOW) {
+				++skipType;
 				continue;
 			}
 #endif
 			DWORD targetRva = pRel->VirtualAddress + off;
-			if (!IsInOriginalSections(targetRva)) {
+			if (targetRva >= pNt->OptionalHeader.SizeOfImage) {
+				++skipRange;
 				continue;
 			}
 #ifdef _WIN64
@@ -595,6 +580,7 @@ void ApplyBaseRelocAfterUnpack()
 #endif
 			DWORD old = 0;
 			if (!MyVirtualProtect(pTarget, ptrSize, PAGE_READWRITE, &old)) {
+				++skipProtect;
 				continue;
 			}
 			*pTarget += relocDelta;
@@ -604,6 +590,9 @@ void ApplyBaseRelocAfterUnpack()
 		pRel = (PIMAGE_BASE_RELOCATION)((BYTE*)pRel + pRel->SizeOfBlock);
 	}
 	SHELL_TRACE_HEX("ApplyReloc:patched", patched);
+	SHELL_TRACE_HEX("ApplyReloc:skip_type", skipType);
+	SHELL_TRACE_HEX("ApplyReloc:skip_range", skipRange);
+	SHELL_TRACE_HEX("ApplyReloc:skip_protect", skipProtect);
 	SHELL_TRACE("ApplyReloc:end");
 }
 
