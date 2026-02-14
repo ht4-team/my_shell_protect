@@ -466,15 +466,16 @@ void UnCompression()
 		SHELL_TRACE_HEX("UnCompression:src_rva", SectionAddress);
 		SHELL_TRACE_HEX("UnCompression:src_len", g_stud.s_blen[i]);
 		SHELL_TRACE_HEX("UnCompression:dst_len", pSections->SizeOfRawData);
+		SHELL_TRACE_HEX("UnCompression:src_va", SectionAddress + m_Dlllpbase);
 
 		MyVirtualProtect(Address, g_stud.s_SectionOffsetAndSize[i][0], PAGE_EXECUTE_READWRITE, &Att_old);
-		MyVirtualProtect((void*)SectionAddress, g_stud.s_blen[i], PAGE_EXECUTE_READWRITE, &Att_olds);
+		MyVirtualProtect((void*)(SectionAddress + m_Dlllpbase), g_stud.s_blen[i], PAGE_EXECUTE_READWRITE, &Att_olds);
 
 		// 缓冲区  RVA+加载基址  缓冲区大小  压缩过去的大小
 		int nRet = LZ4_decompress_safe((char*)(SectionAddress + m_Dlllpbase), (char*)(pSections->VirtualAddress + m_Dlllpbase), g_stud.s_blen[i], pSections->SizeOfRawData);
 		SHELL_TRACE_HEX("UnCompression:ret", (DWORD64)nRet);
 		MyVirtualProtect(Address, g_stud.s_SectionOffsetAndSize[i][0], Att_old, &Att_old);
-		MyVirtualProtect((void*)SectionAddress, g_stud.s_blen[i], Att_olds, &Att_olds);
+		MyVirtualProtect((void*)(SectionAddress + m_Dlllpbase), g_stud.s_blen[i], Att_olds, &Att_olds);
 		++pSections;
 		SectionAddress += g_stud.s_blen[i];
 	}
