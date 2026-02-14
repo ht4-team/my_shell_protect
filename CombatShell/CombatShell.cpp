@@ -116,9 +116,34 @@ static void ShellDiagTrace(const char* stage)
 	g_dataHlper[traceOffset++] = '|';
 	g_dataHlper[traceOffset] = '\0';
 }
+static void ShellDiagAppendHex64(const char* key, unsigned long long value)
+{
+	if (key == nullptr || key[0] == '\0') {
+		return;
+	}
+	char buf[96] = { 0 };
+	const char* hex = "0123456789ABCDEF";
+	int pos = 0;
+	while (key[pos] && pos < 40) {
+		buf[pos] = key[pos];
+		++pos;
+	}
+	if (pos < (int)sizeof(buf) - 3) {
+		buf[pos++] = '=';
+		buf[pos++] = '0';
+		buf[pos++] = 'x';
+	}
+	for (int i = 15; i >= 0 && pos < (int)sizeof(buf) - 1; --i) {
+		buf[pos++] = hex[(value >> (i * 4)) & 0xF];
+	}
+	buf[pos] = '\0';
+	ShellDiagTrace(buf);
+}
 #define SHELL_TRACE(stage) ShellDiagTrace(stage)
+#define SHELL_TRACE_HEX(key, value) ShellDiagAppendHex64((key), (unsigned long long)(value))
 #else
 #define SHELL_TRACE(stage) ((void)0)
+#define SHELL_TRACE_HEX(key, value) ((void)0)
 #endif
 
 // x32 asm
@@ -401,6 +426,7 @@ void SetString(HWND hWnd)
 
 void UnCompression()
 {
+	SHELL_TRACE("UnCompression:start");
 	MyVirtualAlloc = (FnVirtualAlloc)puGetProcAddress(g_stud.s_Krenel32, 0x1EDE5967);
 	PIMAGE_NT_HEADERS pNt = (PIMAGE_NT_HEADERS)(((PIMAGE_DOS_HEADER)m_Dlllpbase)->e_lfanew + (DWORD64)m_Dlllpbase);
 	PIMAGE_DATA_DIRECTORY pDataDirectory = (PIMAGE_DATA_DIRECTORY)pNt->OptionalHeader.DataDirectory;
@@ -436,21 +462,28 @@ void UnCompression()
 	for (DWORD i = 0; i < g_stud.s_SectionCount - 2; ++i)
 	{
 		BYTE* Address = (BYTE*)(pSections->VirtualAddress + m_Dlllpbase);
+		SHELL_TRACE_HEX("UnCompression:sec_va", pSections->VirtualAddress);
+		SHELL_TRACE_HEX("UnCompression:src_rva", SectionAddress);
+		SHELL_TRACE_HEX("UnCompression:src_len", g_stud.s_blen[i]);
+		SHELL_TRACE_HEX("UnCompression:dst_len", pSections->SizeOfRawData);
 
 		MyVirtualProtect(Address, g_stud.s_SectionOffsetAndSize[i][0], PAGE_EXECUTE_READWRITE, &Att_old);
 		MyVirtualProtect((void*)SectionAddress, g_stud.s_blen[i], PAGE_EXECUTE_READWRITE, &Att_olds);
 
 		// 缓冲区  RVA+加载基址  缓冲区大小  压缩过去的大小
 		int nRet = LZ4_decompress_safe((char*)(SectionAddress + m_Dlllpbase), (char*)(pSections->VirtualAddress + m_Dlllpbase), g_stud.s_blen[i], pSections->SizeOfRawData);
+		SHELL_TRACE_HEX("UnCompression:ret", (DWORD64)nRet);
 		MyVirtualProtect(Address, g_stud.s_SectionOffsetAndSize[i][0], Att_old, &Att_old);
 		MyVirtualProtect((void*)SectionAddress, g_stud.s_blen[i], Att_olds, &Att_olds);
 		++pSections;
 		SectionAddress += g_stud.s_blen[i];
 	}
+	SHELL_TRACE("UnCompression:end");
 }
 
 void RepairTheIAT()
 {
+	SHELL_TRACE("RepairTheIAT:start");
 #ifdef _WIN64
 	DWORD64 dwMoudle = 0, ImportTabVA = 0, FunAddress = 0;
 #else
@@ -479,6 +512,7 @@ void RepairTheIAT()
 	while (pImport->Name)
 	{
 		char* Name = (char*)(pImport->Name + dwMoudle);
+		SHELL_TRACE_HEX("RepairTheIAT:dll_name_rva", pImport->Name);
 		HMODULE hModuledll = MyLoadLibraryExA(Name, NULL, NULL);
 		PIMAGE_THUNK_DATA pThunkINT = (PIMAGE_THUNK_DATA)(pImport->OriginalFirstThunk + dwMoudle);
 		PIMAGE_THUNK_DATA pThunkIAT = (PIMAGE_THUNK_DATA)(pImport->FirstThunk + dwMoudle);
@@ -530,6 +564,7 @@ void RepairTheIAT()
 		}
 		++pImport;
 	}
+	SHELL_TRACE("RepairTheIAT:end");
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -732,6 +767,9 @@ void WINAPI CombatShellEntry()
 	MyGetModuleHandleW = (FnGetModuleHandleW)puGetProcAddress(g_stud.s_Krenel32, 0xF4E2F2C8);
 	RefreshRuntimeImageBase();
 	SHELL_TRACE("CombatShellEntry:imagebase_ready");
+	SHELL_TRACE_HEX("CombatShellEntry:imagebase", m_Dlllpbase);
+	SHELL_TRACE_HEX("CombatShellEntry:oep", g_stud.s_dwOepBase);
+	SHELL_TRACE_HEX("CombatShellEntry:import_rva", g_stud.s_DataDirectory[1][0]);
 	MyVirtualProtect = (FnVirtualProtect)puGetProcAddress(g_stud.s_Krenel32, 0xEF64A41E);
 	// GetMyGetProcessAddress
 	MyGetProcAddress = (FnGetProcAddress)puGetProcAddress(g_stud.s_Krenel32, 0xBBAFDF85);
