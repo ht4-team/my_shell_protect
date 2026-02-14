@@ -732,8 +732,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 					CodeExecEntry(g_stud.s_dwOepBase + m_Dlllpbase);
 #else
 					__asm {
-						push esi;
-						push eax;
 						mov	 esi, g_stud.s_dwOepBase;
 						xor	 eax, eax;
 						add  eax, 0x200000;
@@ -742,8 +740,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 						sub  eax, 0x200000;
 						add  esi, eax;
 						jmp	 esi;
-						pop eax;
-						pop esi;
 					}
 #endif
 				}
@@ -803,8 +799,6 @@ DWORD ProcessCallBack(LPVOID lpThreadParameter)
 			CodeExecEntry(g_stud.s_dwOepBase + m_Dlllpbase);
 #else
 			__asm {
-				push esi;
-				push eax;
 				mov	 esi, g_stud.s_dwOepBase;
 				xor	 eax, eax;
 				add  eax, 0x200000;
@@ -813,8 +807,6 @@ DWORD ProcessCallBack(LPVOID lpThreadParameter)
 				sub  eax, 0x200000
 					add  esi, eax;
 				jmp	 esi;
-				pop eax;
-				pop esi;
 			}
 #endif
 			break;
@@ -910,8 +902,6 @@ void WINAPI CombatShellEntry()
 	CodeExecEntry(g_stud.s_dwOepBase + m_Dlllpbase);
 #else
 	__asm {
-		push esi;
-		push eax;
 		mov	 esi, g_stud.s_dwOepBase;
 		xor	 eax, eax;
 		add  eax, 0x200000;
@@ -920,8 +910,6 @@ void WINAPI CombatShellEntry()
 		sub  eax, 0x200000;
 		add  esi, eax;
 		jmp	 esi;
-		pop eax;
-		pop esi;
 	}
 #endif
 	SHELL_TRACE("CombatShellEntry:return");
