@@ -354,29 +354,9 @@ puGetProcAddress ENDP
 ; rcx = g_stud.s_dwOepBase  
 ;
 CodeExecEntry	PROC
-	mov		rdi, rdi
-	push	rbp
-	push	rdi
-	push	rsi
-	push	rax
-	mov		rsi, rcx			; get OepBase
-	mov		rbp, rsp
-	sub		rsp, 38h
-	mov		eax, 00h
-	mov		rcx, 7
-	mov		rdi, rsp
-	rep stos	qword ptr [rdi]
 	; rcx carries absolute OEP VA from caller.
-	; Use jmp (not call) to preserve native process entry control flow.
-	jmp		rsi
-
-
-	mov		rsp, rbp
-	pop		rax
-	pop		rsi
-	pop		rdi
-	pop		rbp
-	ret
+	; Do not touch stack/register context before tail-jumping to real entry.
+	jmp		rcx
 CodeExecEntry	ENDP
 
 ;--------------------------------------------------------
