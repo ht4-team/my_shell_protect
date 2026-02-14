@@ -296,7 +296,7 @@ BOOL CompressionData::CompressSectionData()
 	if (fpFile)
 		fclose(fpFile);
 
-	// 数据对齐 pStandardHeadersize + (压缩后的大小 / 0x200 + ----压缩后的大小 % 0x200 ? 1 : 0) 0x200;
+	// 数据对齐 0x400 + (压缩后的大小 / 0x200 + ----压缩后的大小 % 0x200 ? 1 : 0) 0x200;
 	DWORD Size = 0;
 	if (ComressTotalSize % 0x200 == 0)
 	{
@@ -311,13 +311,13 @@ BOOL CompressionData::CompressSectionData()
 
 
 	// 创建一个新区段
-	DWORD ModifySize = Size - pStandardHeadersize;
+	DWORD ModifySize = Size - 0x400;
 	AddCompreDataSection(ModifySize);
 
-	// 重载文件 - 修改新区段的信息数据 文件偏移 pStandardHeadersize  大小 压缩后数据对齐大小
+	// 重载文件 - 修改新区段的信息数据 文件偏移 0x400  大小 压缩后数据对齐大小
 	ReFileInit();
 	BYTE byteName[] = ".UPX";
-	SinglePuPEInfo::instance()->puSetFileoffsetAndFileSize(m_lpBase, pStandardHeadersize, ModifySize, byteName);
+	SinglePuPEInfo::instance()->puSetFileoffsetAndFileSize(m_lpBase, 0x400, ModifySize, byteName);
 	BYTE byteNmase[] = ".UPX";
 	PIMAGE_SECTION_HEADER compSectionAddress = SinglePuPEInfo::instance()->puGetSectionAddress((char*)m_lpBase, byteNmase);
 	if (!compSectionAddress)
