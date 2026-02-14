@@ -218,15 +218,26 @@ BOOL CompressionData::CompressSectionData()
 
 		char* buf = NULL;
 		void* DataAddress = (void *)(pSections->PointerToRawData + (DWORD64)m_lpBase);
-		DWORD blen = LZ4_compressBound(pSections->SizeOfRawData);
+		DWORD blen = 0;
+		DWORD dwCompressionSize = 0;
+#ifdef _WIN64
+		blen = pSections->SizeOfRawData;
 		if ((buf = (char*)malloc(sizeof(char) * blen)) == NULL)
 		{
 			AfxMessageBox(L"no enough memory!\n");
 			return -1;
 		}
-
-		DWORD dwCompressionSize = 0;
+		memcpy(buf, DataAddress, blen);
+		dwCompressionSize = blen;
+#else
+		blen = LZ4_compressBound(pSections->SizeOfRawData);
+		if ((buf = (char*)malloc(sizeof(char) * blen)) == NULL)
+		{
+			AfxMessageBox(L"no enough memory!\n");
+			return -1;
+		}
 		dwCompressionSize = LZ4_compress_default((char*)DataAddress, buf, pSections->SizeOfRawData, blen);
+#endif
 		fwrite(&dwCompressionSize, sizeof(DWORD), 1, fpFile);
 		fflush(fpFile);
 
