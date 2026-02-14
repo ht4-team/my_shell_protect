@@ -367,7 +367,8 @@ CodeExecEntry	PROC
 	mov		rdi, rsp
 	rep stos	qword ptr [rdi]
 	; rcx carries absolute OEP VA from caller.
-	call	rsi
+	; Use jmp (not call) to preserve native process entry control flow.
+	jmp		rsi
 
 
 	mov		rsp, rbp
