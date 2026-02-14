@@ -147,9 +147,6 @@ BOOL studData::RepairReloCationStud()
 						+ ((PIMAGE_SECTION_HEADER)m_dwNewSectionAddress64)->VirtualAddress
 						+ m_ImageBase64;
 				}
-				else {
-					*pAddress = oldValue - (DWORD64)m_studBase + m_ImageBase64;
-				}
 				VirtualProtect(pAddress, 8, OldAttribute, &OldAttribute);
 			}
 #endif
