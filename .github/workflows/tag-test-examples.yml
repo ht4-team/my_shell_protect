@@ -224,13 +224,10 @@ jobs:
             Stop-Process -Id $proc.Id -Force
           }
 
-          function Assert-SmokeOrCollect([string]$path, [string]$label, [string]$exeName) {
+          function Assert-ExitCodeOrCollect([string]$path, [string]$label, [string]$exeName, [int]$expectedExitCode) {
             $start = Get-Date
-            $workDir = Split-Path -Parent $path
-            $smokeOut = Join-Path $workDir "mini_target_smoke.txt"
-            if (Test-Path $smokeOut) { Remove-Item $smokeOut -Force }
             try {
-              $proc = Start-Process -FilePath $path -ArgumentList @("--smoke") -WorkingDirectory $workDir -PassThru
+              $proc = Start-Process -FilePath $path -PassThru
             } catch {
               Export-CrashEvents -startTime $start -label $label
               Extract-ShellTraceFromDump -exeName $exeName -label $label
@@ -241,18 +238,10 @@ jobs:
               Export-CrashEvents -startTime $start -label $label
               throw "smoke timeout: $path"
             }
-            if ($proc.ExitCode -ne 0) {
+            if ($proc.ExitCode -ne $expectedExitCode) {
               Export-CrashEvents -startTime $start -label $label
               Extract-ShellTraceFromDump -exeName $exeName -label $label
-              throw "smoke exited with non-zero code: $path (exit=$($proc.ExitCode))"
-            }
-            if (-not (Test-Path $smokeOut)) {
-              Export-CrashEvents -startTime $start -label $label
-              throw "smoke output missing: $smokeOut"
-            }
-            $content = (Get-Content -Raw $smokeOut).Trim()
-            if ($content -ne "mini-target-smoke-ok") {
-              throw "smoke output mismatch: $smokeOut value=[$content]"
+              throw "process exited with unexpected code: $path (exit=$($proc.ExitCode), expected=$expectedExitCode)"
             }
           }
 
@@ -268,9 +257,9 @@ jobs:
             Assert-LaunchOrCollect ".\dist\packed\x64\sys_calc_x64_packed.exe" "sys_calc_x64_packed" "sys_calc_x64_packed.exe"
           }
 
-          Assert-SmokeOrCollect ".\dist\packed\x64\mini_target_x64_packed.exe" "mini_target_x64_packed_smoke" "mini_target_x64_packed.exe"
+          Assert-ExitCodeOrCollect ".\dist\packed\x64\mini_target_x64_packed.exe" "mini_target_x64_packed_exit" "mini_target_x64_packed.exe" 7
 
-          Assert-SmokeOrCollect ".\dist\packed\x86\mini_target_x86_packed.exe" "mini_target_x86_packed_smoke" "mini_target_x86_packed.exe"
+          Assert-ExitCodeOrCollect ".\dist\packed\x86\mini_target_x86_packed.exe" "mini_target_x86_packed_exit" "mini_target_x86_packed.exe" 7
 
       - name: Upload test samples artifact
         if: always()
