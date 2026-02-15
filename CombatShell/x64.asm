@@ -356,9 +356,9 @@ puGetProcAddress ENDP
 CodeExecEntry	PROC
 	; rcx carries absolute OEP VA from caller.
 	; Use normal Win64 call semantics so targets that return can unwind safely.
-	sub		rsp, 28h
+	sub		rsp, 20h
 	call	rcx
-	add		rsp, 28h
+	add		rsp, 20h
 	ret
 CodeExecEntry	ENDP
 
