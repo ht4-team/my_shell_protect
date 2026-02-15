@@ -205,9 +205,27 @@ BOOL studData::CopyStud()
 
 	// OEP
 #ifdef _WIN64
-	pNt->OptionalHeader.AddressOfEntryPoint = (DWORD64)dexportAddress - (DWORD64)m_studBase - studSection->VirtualAddress + SurceBase->VirtualAddress;
+	{
+		const DWORD64 entryRva = (DWORD64)dexportAddress - (DWORD64)m_studBase;
+		const DWORD64 textStart = (DWORD64)studSection->VirtualAddress;
+		const DWORD64 textSize = (DWORD64)studSection->Misc.VirtualSize;
+		if (entryRva < textStart || entryRva >= (textStart + textSize)) {
+			return false;
+		}
+		const DWORD64 entryOffsetInText = entryRva - textStart;
+		pNt->OptionalHeader.AddressOfEntryPoint = (DWORD)(SurceBase->VirtualAddress + entryOffsetInText);
+	}
 #else
-	pNt->OptionalHeader.AddressOfEntryPoint = (DWORD)dexportAddress - (DWORD)m_studBase - studSection->VirtualAddress + SurceBase->VirtualAddress;
+	{
+		const DWORD entryRva = (DWORD)dexportAddress - (DWORD)m_studBase;
+		const DWORD textStart = studSection->VirtualAddress;
+		const DWORD textSize = studSection->Misc.VirtualSize;
+		if (entryRva < textStart || entryRva >= (textStart + textSize)) {
+			return false;
+		}
+		const DWORD entryOffsetInText = entryRva - textStart;
+		pNt->OptionalHeader.AddressOfEntryPoint = SurceBase->VirtualAddress + entryOffsetInText;
+	}
 #endif
 
 	int nRet = WriteFile(SinglePuPEInfo::instance()->puFileHandle(), SinglePuPEInfo::instance()->puGetImageBase(), SinglePuPEInfo::instance()->puFileSize(), &dwRiteFile, &overLapped);
