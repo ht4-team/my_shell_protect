@@ -413,3 +413,137 @@ jobs:
           name: packed-crash-diagnostics
           path: dist\diagnostics\*
           if-no-files-found: ignore
+
+  forensic-x86:
+    name: Forensic x86 diagnostics
+    runs-on: windows-2022
+    needs: test-example-pack
+    if: ${{ always() && needs.test-example-pack.result == 'failure' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build Win32 binaries with diagnostics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          & msbuild .\CombatShell\CombatShell.vcxproj /m /p:Configuration=Release /p:Platform=Win32 /p:ShellDiagnostics=true
+          if ($LASTEXITCODE -ne 0) { throw "build CombatShell Win32 failed" }
+          & msbuild .\CombatShellCli.vcxproj /m /p:Configuration=Release /p:Platform=Win32
+          if ($LASTEXITCODE -ne 0) { throw "build CombatShellCli Win32 failed" }
+          & msbuild .\examples\MiniTarget.vcxproj /m /p:Configuration=Release /p:Platform=Win32
+          if ($LASTEXITCODE -ne 0) { throw "build MiniTarget Win32 failed" }
+
+      - name: Reproduce x86 packed runtime crash with deep diagnostics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path dist\forensic | Out-Null
+          New-Item -ItemType Directory -Force -Path dist\forensic\sample | Out-Null
+
+          function Enable-LocalDumps([string]$exeName) {
+            $dumpDir = (Resolve-Path "dist\forensic").Path
+            $dumpKey = "HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\$exeName"
+            New-Item -Path $dumpKey -Force | Out-Null
+            New-ItemProperty -Path $dumpKey -Name "DumpFolder" -PropertyType ExpandString -Value $dumpDir -Force | Out-Null
+            New-ItemProperty -Path $dumpKey -Name "DumpType" -PropertyType DWord -Value 2 -Force | Out-Null
+            New-ItemProperty -Path $dumpKey -Name "DumpCount" -PropertyType DWord -Value 10 -Force | Out-Null
+          }
+
+          function Analyze-Dump([string]$exeName) {
+            $dump = Get-ChildItem -Path dist\forensic -Filter "$exeName.*.dmp" -ErrorAction SilentlyContinue |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object -First 1
+            if (-not $dump) { return }
+            $cdbCandidates = @(
+              "$env:ProgramFiles(x86)\Windows Kits\10\Debuggers\x64\cdb.exe",
+              "$env:ProgramFiles(x86)\Windows Kits\10\Debuggers\x86\cdb.exe"
+            )
+            $cdbCandidates |
+              ForEach-Object { "{0}`t{1}" -f $_, (Test-Path $_) } |
+              Out-File -FilePath "dist\forensic\cdb_candidates.txt" -Encoding utf8
+            $cdb = $cdbCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if (-not $cdb) { return }
+            & $cdb -z $dump.FullName -c "!analyze -v; .ecxr; r; kv; q" |
+              Out-File -FilePath "dist\forensic\dump_analyze.txt" -Encoding utf8
+          }
+
+          function Extract-ShellTrace([string]$exeName) {
+            $dump = Get-ChildItem -Path dist\forensic -Filter "$exeName.*.dmp" -ErrorAction SilentlyContinue |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object -First 1
+            if (-not $dump) { return }
+            $bytes = [System.IO.File]::ReadAllBytes($dump.FullName)
+            $markers = @(
+              "CombatShellEntry:start|",
+              "ApplyReloc:start|",
+              "RepairTheIAT:start|",
+              "Crash:uef|",
+              "Crash:veh|"
+            )
+            foreach ($m in $markers) {
+              $needle = [System.Text.Encoding]::ASCII.GetBytes($m)
+              $idx = -1
+              for ($i = 0; $i -le $bytes.Length - $needle.Length; $i++) {
+                $ok = $true
+                for ($j = 0; $j -lt $needle.Length; $j++) {
+                  if ($bytes[$i + $j] -ne $needle[$j]) { $ok = $false; break }
+                }
+                if ($ok) { $idx = $i; break }
+              }
+              if ($idx -ge 0) {
+                $chars = New-Object System.Collections.Generic.List[byte]
+                for ($k = $idx; $k -lt [Math]::Min($idx + 65536, $bytes.Length); $k++) {
+                  if ($bytes[$k] -eq 0) { break }
+                  $chars.Add($bytes[$k]) | Out-Null
+                }
+                if ($chars.Count -gt 0) {
+                  [System.Text.Encoding]::ASCII.GetString($chars.ToArray()) |
+                    Out-File -FilePath "dist\forensic\shell_trace.txt" -Encoding utf8
+                  break
+                }
+              }
+            }
+          }
+
+          Enable-LocalDumps "mini_target_x86_forensic.exe"
+          Copy-Item bin\MiniTarget.exe dist\forensic\sample\mini_target.exe -Force
+          Copy-Item bin\CombatShellCli.exe dist\forensic\sample\CombatShellCli.exe -Force
+          Copy-Item bin\CombatShell.dll dist\forensic\sample\CombatShell.dll -Force
+
+          Push-Location dist\forensic\sample
+          .\CombatShellCli.exe inspect .\mini_target.exe | Out-File -FilePath ..\inspect_before.txt -Encoding utf8
+          .\CombatShellCli.exe pack .\mini_target.exe
+          .\CombatShellCli.exe inspect .\mini_target.exe | Out-File -FilePath ..\inspect_after_pack.txt -Encoding utf8
+          Copy-Item .\mini_target.exe .\mini_target_x86_forensic.exe -Force
+          Pop-Location
+
+          $start = Get-Date
+          $proc = Start-Process -FilePath .\dist\forensic\sample\mini_target_x86_forensic.exe -PassThru -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 4
+          if ($proc -and -not $proc.HasExited) {
+            Stop-Process -Id $proc.Id -Force
+            "forensic launch still running (no immediate crash)" | Out-File -FilePath dist\forensic\result.txt -Encoding utf8
+          } else {
+            $exitCode = if ($proc) { $proc.ExitCode } else { -1 }
+            "forensic launch failed or exited quickly, exit=$exitCode" | Out-File -FilePath dist\forensic\result.txt -Encoding utf8
+            Get-WinEvent -FilterHashtable @{ LogName = "Application"; StartTime = $start.AddSeconds(-5) } -ErrorAction SilentlyContinue |
+              Where-Object { $_.ProviderName -in @("Application Error", "Windows Error Reporting") } |
+              Select-Object TimeCreated, ProviderName, Id, Message |
+              Format-List |
+              Out-File -FilePath dist\forensic\events.txt -Encoding utf8
+            Extract-ShellTrace -exeName "mini_target_x86_forensic.exe"
+            Analyze-Dump -exeName "mini_target_x86_forensic.exe"
+          }
+
+      - name: Upload forensic artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packed-x86-forensic
+          path: dist\forensic\*
+          if-no-files-found: ignore
