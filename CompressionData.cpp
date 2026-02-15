@@ -171,6 +171,11 @@ BOOL CompressionData::CompressSectionData()
 #endif
 	if (!pNt)
 		return false;
+#ifndef _WIN64
+	// x86 shell code still contains absolute references in .VMP.
+	// Keep packed images at preferred base to avoid missing reloc coverage for injected section.
+	pNt->OptionalHeader.DllCharacteristics &= ~IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE;
+#endif
 
 	DWORD dSectionCount = pNt->FileHeader.NumberOfSections;
 	PIMAGE_SECTION_HEADER psection = (PIMAGE_SECTION_HEADER)m_SectionHeadre;
