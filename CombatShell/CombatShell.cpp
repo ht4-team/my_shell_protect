@@ -665,6 +665,34 @@ static void RunTlsCallbacksIfPresent()
 	SHELL_TRACE_HEX("TLS:count", callbackCount);
 }
 
+static bool IsRvaInsideImage(DWORD rva, DWORD sizeOfImage, DWORD needed = 1)
+{
+	if (rva == 0 || sizeOfImage == 0 || needed == 0) {
+		return false;
+	}
+	if (rva >= sizeOfImage) {
+		return false;
+	}
+	if (needed > sizeOfImage) {
+		return false;
+	}
+	return rva <= (sizeOfImage - needed);
+}
+
+static bool IsStringRvaSafe(DWORD rva, DWORD sizeOfImage, DWORD maxLen)
+{
+	if (!IsRvaInsideImage(rva, sizeOfImage, 1)) {
+		return false;
+	}
+	const char* p = (const char*)(m_Dlllpbase + rva);
+	for (DWORD i = 0; i < maxLen && (rva + i) < sizeOfImage; ++i) {
+		if (p[i] == '\0') {
+			return true;
+		}
+	}
+	return false;
+}
+
 void RepairTheIAT()
 {
 	SHELL_TRACE("RepairTheIAT:start");
@@ -675,8 +703,21 @@ void RepairTheIAT()
 #endif
 	// Win32_4byte_即使_强转_DWORD64也是4byte
 	dwMoudle = (DWORD64)MyGetModuleHandleW(NULL);
-	ImportTabVA = g_stud.s_DataDirectory[1][0] + dwMoudle;
+	PIMAGE_NT_HEADERS pNt = (PIMAGE_NT_HEADERS)(((PIMAGE_DOS_HEADER)dwMoudle)->e_lfanew + dwMoudle);
+	if (!pNt) {
+		SHELL_TRACE("RepairTheIAT:no_nt");
+		return;
+	}
+	const DWORD sizeOfImage = pNt->OptionalHeader.SizeOfImage;
+	const DWORD importRva = (DWORD)g_stud.s_DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT][0];
+	const DWORD importSize = (DWORD)g_stud.s_DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT][1];
+	if (!IsRvaInsideImage(importRva, sizeOfImage, sizeof(IMAGE_IMPORT_DESCRIPTOR)) || importSize < sizeof(IMAGE_IMPORT_DESCRIPTOR)) {
+		SHELL_TRACE("RepairTheIAT:no_import_dir");
+		return;
+	}
+	ImportTabVA = importRva + dwMoudle;
 	PIMAGE_IMPORT_DESCRIPTOR pImport = (PIMAGE_IMPORT_DESCRIPTOR)ImportTabVA;
+	const DWORD maxImportDesc = importSize / sizeof(IMAGE_IMPORT_DESCRIPTOR);
 
 #ifdef _WIN64
 
@@ -694,23 +735,54 @@ void RepairTheIAT()
 #endif
 	DWORD Att_old = 0;
 	DWORD iatTraceCount = 0;
-	while (pImport->Name)
+	for (DWORD importIndex = 0; importIndex < maxImportDesc; ++importIndex)
 	{
+		if (pImport->Name == 0 && pImport->FirstThunk == 0 && pImport->OriginalFirstThunk == 0) {
+			break;
+		}
+		if (!IsStringRvaSafe(pImport->Name, sizeOfImage, 260)) {
+			SHELL_TRACE("RepairTheIAT:bad_dll_name");
+			++pImport;
+			continue;
+		}
+		if (!IsRvaInsideImage(pImport->FirstThunk, sizeOfImage, sizeof(IMAGE_THUNK_DATA))) {
+			SHELL_TRACE("RepairTheIAT:bad_ft");
+			++pImport;
+			continue;
+		}
+
 		char* Name = (char*)(pImport->Name + dwMoudle);
 		SHELL_TRACE_HEX("RepairTheIAT:dll_name_rva", pImport->Name);
 		SHELL_TRACE_HEX("RepairTheIAT:oft_rva", pImport->OriginalFirstThunk);
 		SHELL_TRACE_HEX("RepairTheIAT:ft_rva", pImport->FirstThunk);
 		HMODULE hModuledll = MyLoadLibraryExA(Name, NULL, NULL);
+		if (!hModuledll) {
+			SHELL_TRACE("RepairTheIAT:loadlib_fail");
+			++pImport;
+			continue;
+		}
 		DWORD64 thunkRva = pImport->OriginalFirstThunk ? pImport->OriginalFirstThunk : pImport->FirstThunk;
+		if (!IsRvaInsideImage((DWORD)thunkRva, sizeOfImage, sizeof(IMAGE_THUNK_DATA))) {
+			SHELL_TRACE("RepairTheIAT:bad_oft");
+			++pImport;
+			continue;
+		}
 		PIMAGE_THUNK_DATA pThunkINT = (PIMAGE_THUNK_DATA)(thunkRva + dwMoudle);
 		PIMAGE_THUNK_DATA pThunkIAT = (PIMAGE_THUNK_DATA)(pImport->FirstThunk + dwMoudle);
-		while (pThunkINT->u1.AddressOfData)
+		for (DWORD thunkIndex = 0; thunkIndex < 8192 && pThunkINT->u1.AddressOfData; ++thunkIndex)
 		{
 			MyVirtualProtect((PVOID64)pThunkIAT, 0x16, PAGE_READWRITE, &Att_old);
 			const ULONGLONG thunkValue = pThunkINT->u1.AddressOfData;
 #ifdef _WIN64
 			if (!IMAGE_SNAP_BY_ORDINAL64(thunkValue))
 			{
+				if (!IsRvaInsideImage((DWORD)thunkValue, sizeOfImage, sizeof(WORD) + 2)) {
+					SHELL_TRACE("RepairTheIAT:bad_import_name");
+					MyVirtualProtect((PVOID64)pThunkIAT, 0x16, Att_old, &Att_old);
+					++pThunkINT;
+					++pThunkIAT;
+					continue;
+				}
 				PIMAGE_IMPORT_BY_NAME pName = (PIMAGE_IMPORT_BY_NAME)(thunkValue + dwMoudle);
 				FunAddress = (DWORD64)MyGetProcAddress(hModuledll, pName->Name);
 			}
@@ -722,6 +794,13 @@ void RepairTheIAT()
 #else
 			if (!IMAGE_SNAP_BY_ORDINAL32((DWORD)thunkValue))
 			{
+				if (!IsRvaInsideImage((DWORD)thunkValue, sizeOfImage, sizeof(WORD) + 2)) {
+					SHELL_TRACE("RepairTheIAT:bad_import_name");
+					MyVirtualProtect((PVOID64)pThunkIAT, 0x16, Att_old, &Att_old);
+					++pThunkINT;
+					++pThunkIAT;
+					continue;
+				}
 				PIMAGE_IMPORT_BY_NAME pName = (PIMAGE_IMPORT_BY_NAME)(thunkValue + dwMoudle);
 				FunAddress = (DWORD64)MyGetProcAddress(hModuledll, pName->Name);
 			}
@@ -731,6 +810,14 @@ void RepairTheIAT()
 				FunAddress = (DWORD64)MyGetProcAddress(hModuledll, (char*)(ULONG_PTR)dwFunOrdinal);
 			}
 #endif
+
+			if (!FunAddress) {
+				SHELL_TRACE("RepairTheIAT:getproc_fail");
+				MyVirtualProtect((PVOID64)pThunkIAT, 0x16, Att_old, &Att_old);
+				++pThunkINT;
+				++pThunkIAT;
+				continue;
+			}
 
 #ifdef _WIN64
 			pThunkIAT->u1.Function = (ULONGLONG)FunAddress;
@@ -754,6 +841,11 @@ void RepairTheIAT()
 			MyVirtualProtect((PVOID64)pThunkIAT, 0x16, Att_old, &Att_old);
 			++pThunkINT;
 			++pThunkIAT;
+
+			const DWORD nextIatRva = (DWORD)((DWORD64)pThunkIAT - dwMoudle);
+			if (!IsRvaInsideImage(nextIatRva, sizeOfImage, sizeof(IMAGE_THUNK_DATA))) {
+				break;
+			}
 		}
 		++pImport;
 	}
