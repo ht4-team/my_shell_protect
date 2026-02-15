@@ -47,8 +47,11 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path dist\diagnostics | Out-Null
+          $diagDir = (Resolve-Path "dist\diagnostics").Path
+          $packExceptionLog = Join-Path $diagDir "pack_exception.txt"
+          $packProgressLog = Join-Path $diagDir "pack_progress.log"
           trap {
-            $_ | Out-File -FilePath "dist\diagnostics\pack_exception.txt" -Append -Encoding utf8
+            $_ | Out-File -FilePath $packExceptionLog -Append -Encoding utf8
             throw
           }
 
@@ -97,7 +100,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist\packed\x64 | Out-Null
           New-Item -ItemType Directory -Force -Path dist\packed\x86 | Out-Null
           function Mark-Step([string]$msg) {
-            Add-Content -Path "dist\diagnostics\pack_progress.log" -Value "$((Get-Date).ToString('s')) $msg"
+            Add-Content -Path $packProgressLog -Value "$((Get-Date).ToString('s')) $msg"
           }
           Mark-Step "prep:start"
           function Resolve-FirstExistingPath([string[]]$candidates) {
