@@ -189,12 +189,18 @@ BOOL studData::RepairReloCationStud()
 #ifndef _WIN64
 			if (RelType[i].type == 3) {
 				DWORD* pRel = (DWORD *)(pStuRelocation->VirtualAddress + RelType[i].offset + (DWORD)m_studBase);
-
-				VirtualProtect(pRel, 8, PAGE_READWRITE, &OldAttribute);
-
-				*pRel = *pRel - (DWORD)m_studBase - ((PIMAGE_SECTION_HEADER)m_dwStudSectionAddress)->VirtualAddress + m_ImageBase + ((PIMAGE_SECTION_HEADER)m_dwNewSectionAddress)->VirtualAddress;
-
-				VirtualProtect(pRel, 8, OldAttribute, &OldAttribute);
+				VirtualProtect(pRel, sizeof(DWORD), PAGE_READWRITE, &OldAttribute);
+				const DWORD studTextStart = (DWORD)m_studBase + ((PIMAGE_SECTION_HEADER)m_dwStudSectionAddress)->VirtualAddress;
+				const DWORD studTextEnd = studTextStart + ((PIMAGE_SECTION_HEADER)m_dwStudSectionAddress)->Misc.VirtualSize;
+				const DWORD oldValue = *pRel;
+				if (oldValue >= studTextStart && oldValue < studTextEnd) {
+					*pRel = oldValue
+						- (DWORD)m_studBase
+						- ((PIMAGE_SECTION_HEADER)m_dwStudSectionAddress)->VirtualAddress
+						+ ((PIMAGE_SECTION_HEADER)m_dwNewSectionAddress)->VirtualAddress
+						+ m_ImageBase;
+				}
+				VirtualProtect(pRel, sizeof(DWORD), OldAttribute, &OldAttribute);
 			}
 #else
 			if (RelType[i].type == 10) {
