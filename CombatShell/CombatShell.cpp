@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 #include <CommCtrl.h>
+#include <stddef.h>
 
 #pragma comment(linker, "/merge:.data=.text")
 #pragma comment(linker, "/merge:.rdata=.text")
@@ -33,7 +34,7 @@ DWORD m_Dlllpbase = 0x400000;
 extern "C" {
 	DllExport Stud g_stud = { 0, };
 	DllExport VmNode g_VmNode = { 0, };
-	DllExport char g_dataHlper[0x2048] = { 0, };
+	DllExport char g_dataHlper[0x10000] = { 0, };
 	DllExport void WINAPI CombatShellEntry();
 #ifdef _WIN64
 	DllExport void WINAPI VmEntry();
@@ -755,6 +756,7 @@ void RepairTheIAT()
 		SHELL_TRACE_HEX("RepairTheIAT:dll_name_rva", pImport->Name);
 		SHELL_TRACE_HEX("RepairTheIAT:oft_rva", pImport->OriginalFirstThunk);
 		SHELL_TRACE_HEX("RepairTheIAT:ft_rva", pImport->FirstThunk);
+		SHELL_TRACE_HEX("RepairTheIAT:desc_idx", importIndex);
 		HMODULE hModuledll = MyLoadLibraryExA(Name, NULL, NULL);
 		if (!hModuledll) {
 			SHELL_TRACE("RepairTheIAT:loadlib_fail");
@@ -783,6 +785,13 @@ void RepairTheIAT()
 					++pThunkIAT;
 					continue;
 				}
+				if (!IsStringRvaSafe((DWORD)thunkValue + (DWORD)offsetof(IMAGE_IMPORT_BY_NAME, Name), sizeOfImage, 512)) {
+					SHELL_TRACE("RepairTheIAT:bad_import_string");
+					MyVirtualProtect((PVOID64)pThunkIAT, 0x16, Att_old, &Att_old);
+					++pThunkINT;
+					++pThunkIAT;
+					continue;
+				}
 				PIMAGE_IMPORT_BY_NAME pName = (PIMAGE_IMPORT_BY_NAME)(thunkValue + dwMoudle);
 				FunAddress = (DWORD64)MyGetProcAddress(hModuledll, pName->Name);
 			}
@@ -796,6 +805,13 @@ void RepairTheIAT()
 			{
 				if (!IsRvaInsideImage((DWORD)thunkValue, sizeOfImage, sizeof(WORD) + 2)) {
 					SHELL_TRACE("RepairTheIAT:bad_import_name");
+					MyVirtualProtect((PVOID64)pThunkIAT, 0x16, Att_old, &Att_old);
+					++pThunkINT;
+					++pThunkIAT;
+					continue;
+				}
+				if (!IsStringRvaSafe((DWORD)thunkValue + (DWORD)offsetof(IMAGE_IMPORT_BY_NAME, Name), sizeOfImage, 512)) {
+					SHELL_TRACE("RepairTheIAT:bad_import_string");
 					MyVirtualProtect((PVOID64)pThunkIAT, 0x16, Att_old, &Att_old);
 					++pThunkINT;
 					++pThunkIAT;
@@ -847,6 +863,7 @@ void RepairTheIAT()
 				break;
 			}
 		}
+		SHELL_TRACE_HEX("RepairTheIAT:desc_done", importIndex);
 		++pImport;
 	}
 	SHELL_TRACE("RepairTheIAT:end");
