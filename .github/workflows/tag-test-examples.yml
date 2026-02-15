@@ -47,6 +47,10 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path dist\diagnostics | Out-Null
+          trap {
+            $_ | Out-File -FilePath "dist\diagnostics\pack_exception.txt" -Append -Encoding utf8
+            throw
+          }
 
           function Enable-LocalDumps([string]$exeName) {
             $dumpDir = (Resolve-Path "dist\diagnostics").Path
@@ -95,6 +99,7 @@ jobs:
           function Mark-Step([string]$msg) {
             Add-Content -Path "dist\diagnostics\pack_progress.log" -Value "$((Get-Date).ToString('s')) $msg"
           }
+          Mark-Step "prep:start"
           function Resolve-FirstExistingPath([string[]]$candidates) {
             foreach ($candidate in $candidates) {
               if (Test-Path $candidate) { return $candidate }
@@ -104,6 +109,7 @@ jobs:
           Enable-LocalDumps "calc.exe"
           Enable-LocalDumps "sys_calc.exe"
           Enable-LocalDumps "mini_target.exe"
+          Mark-Step "prep:dumps-enabled"
 
           # x64 sample: calc.exe + x64 shell
           if (Test-Path examples\calc.exe) {
@@ -117,6 +123,7 @@ jobs:
           Copy-Item bin\x64\MiniTarget.exe test\samples\x64\mini_target.exe -Force
           Copy-Item bin\x64\CombatShellCli.exe test\samples\x64\CombatShellCli.exe -Force
           Copy-Item bin\x64\CombatShell.dll test\samples\x64\CombatShell.dll -Force
+          Mark-Step "prep:x64-files-ready"
 
           # x86 sample: mini_target.exe + x86 shell
           Copy-Item bin\MiniTarget.exe test\samples\x86\mini_target.exe -Force
@@ -128,8 +135,10 @@ jobs:
             "bin\Release\CombatShell.dll"
           )
           Copy-Item $x86ShellDll test\samples\x86\CombatShell.dll -Force
+          Mark-Step "prep:x86-files-ready"
           Copy-Item test\samples\x64\CombatShell.dll dist\packed\x64\CombatShell.dll -Force
           Copy-Item test\samples\x86\CombatShell.dll dist\packed\x86\CombatShell.dll -Force
+          Mark-Step "prep:packed-dll-copied"
 
           Push-Location test\samples\x64
           Mark-Step "x64:inspect-calc:start"
