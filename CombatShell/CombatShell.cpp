@@ -98,6 +98,17 @@ static void RefreshRuntimeImageBase()
 	}
 }
 
+#ifndef _WIN64
+typedef void (WINAPI* FnOriginalEntry32)();
+static void CallOriginalEntry32()
+{
+	FnOriginalEntry32 fn = (FnOriginalEntry32)(m_Dlllpbase + g_stud.s_dwOepBase);
+	if (fn) {
+		fn();
+	}
+}
+#endif
+
 #ifdef SHELL_DIAGNOSTIC_ENABLED
 static char g_shellDiagTrace[0x3000] = { 0 };
 static void ShellDiagTrace(const char* stage)
@@ -919,16 +930,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 					CodeExecEntry(g_stud.s_dwOepBase + m_Dlllpbase);
 					MyExitProcess(0);
 #else
-					__asm {
-						mov	 esi, g_stud.s_dwOepBase;
-						xor	 eax, eax;
-						add  eax, 0x200000;
-						add	 eax, 0x200000;
-						add	 eax, 0x200000;
-						sub  eax, 0x200000;
-						add  esi, eax;
-						call esi;
-					}
+					CallOriginalEntry32();
 					MyExitProcess(0);
 #endif
 				}
@@ -988,16 +990,7 @@ DWORD ProcessCallBack(LPVOID lpThreadParameter)
 			CodeExecEntry(g_stud.s_dwOepBase + m_Dlllpbase);
 			MyExitProcess(0);
 #else
-			__asm {
-				mov	 esi, g_stud.s_dwOepBase;
-				xor	 eax, eax;
-				add  eax, 0x200000;
-				add	 eax, 0x200000;
-				add	 eax, 0x200000;
-				sub  eax, 0x200000
-					add  esi, eax;
-				call esi;
-			}
+			CallOriginalEntry32();
 			MyExitProcess(0);
 #endif
 			break;
@@ -1097,16 +1090,7 @@ void WINAPI CombatShellEntry()
 	CodeExecEntry(g_stud.s_dwOepBase + m_Dlllpbase);
 	MyExitProcess(0);
 #else
-	__asm {
-		mov	 esi, g_stud.s_dwOepBase;
-		xor	 eax, eax;
-		add  eax, 0x200000;
-		add	 eax, 0x200000;
-		add	 eax, 0x200000;
-		sub  eax, 0x200000;
-		add  esi, eax;
-		call esi;
-	}
+	CallOriginalEntry32();
 	MyExitProcess(0);
 #endif
 	SHELL_TRACE("CombatShellEntry:return");
