@@ -99,23 +99,24 @@ static void RefreshRuntimeImageBase()
 }
 
 #ifdef SHELL_DIAGNOSTIC_ENABLED
+static char g_shellDiagTrace[0x20000] = { 0 };
 static void ShellDiagTrace(const char* stage)
 {
 	if (stage == nullptr || stage[0] == '\0') {
 		return;
 	}
 	static unsigned int traceOffset = 0;
-	const unsigned int cap = (unsigned int)sizeof(g_dataHlper);
+	const unsigned int cap = (unsigned int)sizeof(g_shellDiagTrace);
 	if (traceOffset >= cap - 2) {
 		return;
 	}
 
 	const char* p = stage;
 	while (*p && traceOffset < cap - 2) {
-		g_dataHlper[traceOffset++] = *p++;
+		g_shellDiagTrace[traceOffset++] = *p++;
 	}
-	g_dataHlper[traceOffset++] = '|';
-	g_dataHlper[traceOffset] = '\0';
+	g_shellDiagTrace[traceOffset++] = '|';
+	g_shellDiagTrace[traceOffset] = '\0';
 }
 static void ShellDiagAppendHex64(const char* key, unsigned long long value)
 {
@@ -694,6 +695,28 @@ static bool IsStringRvaSafe(DWORD rva, DWORD sizeOfImage, DWORD maxLen)
 	return false;
 }
 
+static HMODULE SafeLoadLibraryForIat(char* name)
+{
+	__try {
+		return MyLoadLibraryExA(name, NULL, NULL);
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER) {
+		SHELL_TRACE_HEX("RepairTheIAT:loadlib_seh", (DWORD64)GetExceptionCode());
+		return NULL;
+	}
+}
+
+static DWORD64 SafeGetProcAddressForIat(HMODULE module, const char* procName)
+{
+	__try {
+		return (DWORD64)MyGetProcAddress(module, procName);
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER) {
+		SHELL_TRACE_HEX("RepairTheIAT:getproc_seh", (DWORD64)GetExceptionCode());
+		return 0;
+	}
+}
+
 void RepairTheIAT()
 {
 	SHELL_TRACE("RepairTheIAT:start");
@@ -757,7 +780,7 @@ void RepairTheIAT()
 		SHELL_TRACE_HEX("RepairTheIAT:oft_rva", pImport->OriginalFirstThunk);
 		SHELL_TRACE_HEX("RepairTheIAT:ft_rva", pImport->FirstThunk);
 		SHELL_TRACE_HEX("RepairTheIAT:desc_idx", importIndex);
-		HMODULE hModuledll = MyLoadLibraryExA(Name, NULL, NULL);
+		HMODULE hModuledll = SafeLoadLibraryForIat(Name);
 		if (!hModuledll) {
 			SHELL_TRACE("RepairTheIAT:loadlib_fail");
 			++pImport;
@@ -793,12 +816,12 @@ void RepairTheIAT()
 					continue;
 				}
 				PIMAGE_IMPORT_BY_NAME pName = (PIMAGE_IMPORT_BY_NAME)(thunkValue + dwMoudle);
-				FunAddress = (DWORD64)MyGetProcAddress(hModuledll, pName->Name);
+				FunAddress = SafeGetProcAddressForIat(hModuledll, pName->Name);
 			}
 			else
 			{
 				DWORD64 dwFunOrdinal = IMAGE_ORDINAL64(thunkValue);
-				FunAddress = (DWORD64)MyGetProcAddress(hModuledll, (char*)(ULONG_PTR)dwFunOrdinal);
+				FunAddress = SafeGetProcAddressForIat(hModuledll, (char*)(ULONG_PTR)dwFunOrdinal);
 			}
 #else
 			if (!IMAGE_SNAP_BY_ORDINAL32((DWORD)thunkValue))
@@ -818,12 +841,12 @@ void RepairTheIAT()
 					continue;
 				}
 				PIMAGE_IMPORT_BY_NAME pName = (PIMAGE_IMPORT_BY_NAME)(thunkValue + dwMoudle);
-				FunAddress = (DWORD64)MyGetProcAddress(hModuledll, pName->Name);
+				FunAddress = SafeGetProcAddressForIat(hModuledll, pName->Name);
 			}
 			else
 			{
 				DWORD dwFunOrdinal = IMAGE_ORDINAL32((DWORD)thunkValue);
-				FunAddress = (DWORD64)MyGetProcAddress(hModuledll, (char*)(ULONG_PTR)dwFunOrdinal);
+				FunAddress = SafeGetProcAddressForIat(hModuledll, (char*)(ULONG_PTR)dwFunOrdinal);
 			}
 #endif
 
