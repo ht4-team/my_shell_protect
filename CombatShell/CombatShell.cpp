@@ -743,20 +743,6 @@ void RepairTheIAT()
 	PIMAGE_IMPORT_DESCRIPTOR pImport = (PIMAGE_IMPORT_DESCRIPTOR)ImportTabVA;
 	const DWORD maxImportDesc = importSize / sizeof(IMAGE_IMPORT_DESCRIPTOR);
 
-#ifdef _WIN64
-
-#else
-	// IAT
-	BYTE OpCode[] = { 0xe8, 0x01, 0x00, 0x00,
-					  0x00, 0xe9, 0x58, 0xeb,
-					  0x01, 0xe8, 0xb8, 0x8d,
-					  0xe4, 0xd8, 0x62, 0xeb,
-					  0x01, 0x15, 0x35, 0x75,
-					  0x35, 0x97, 0x13, 0xeb,
-					  0x01, 0xff, 0x50, 0xeb,
-					  0x02, 0xff, 0x15, 0xc3
-	};
-#endif
 	DWORD Att_old = 0;
 	DWORD iatTraceCount = 0;
 	for (DWORD importIndex = 0; importIndex < maxImportDesc; ++importIndex)
@@ -873,16 +859,9 @@ void RepairTheIAT()
 #ifdef _WIN64
 			pThunkIAT->u1.Function = (ULONGLONG)FunAddress;
 #else
-			LPVOID AllocMem = NULL;
-			FunAddress ^= XORKEY;
-			AllocMem = (PDWORD)MyVirtualAlloc(NULL, 0x20, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-			//address offset
-			OpCode[11] = FunAddress;
-			OpCode[12] = FunAddress >> 0x8;
-			OpCode[13] = FunAddress >> 0x10;
-			OpCode[14] = FunAddress >> 0x18;
-			memcpy(AllocMem, OpCode, 0x20);
-			pThunkIAT->u1.Function = (ULONGLONG)AllocMem;
+			// Keep x86 path consistent with x64: write resolved function pointer directly.
+			// The trampoline-based variant is fragile on modern runtimes and caused crashes.
+			pThunkIAT->u1.Function = (ULONGLONG)(DWORD)FunAddress;
 #endif
 			if (iatTraceCount < 12) {
 				SHELL_TRACE_HEX("RepairTheIAT:iat_rva", (DWORD64)((DWORD64)pThunkIAT - dwMoudle));
