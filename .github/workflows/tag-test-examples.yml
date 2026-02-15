@@ -21,16 +21,26 @@ jobs:
       - name: Build core binaries for test
         shell: pwsh
         run: |
-          msbuild .\CombatShell\CombatShell.vcxproj /m /p:Configuration=Release /p:Platform=Win32 /p:ShellDiagnostics=true
-          msbuild .\CombatShell\CombatShell.vcxproj /m /p:Configuration=Release /p:Platform=x64 /p:ShellDiagnostics=true
-          msbuild .\CombatShellCli.vcxproj /m /p:Configuration=Release /p:Platform=Win32
-          msbuild .\CombatShellCli.vcxproj /m /p:Configuration=Release /p:Platform=x64
+          $ErrorActionPreference = "Stop"
+          function Invoke-MSBuild([string]$project, [string]$platform, [string[]]$extraArgs = @()) {
+            & msbuild $project /m /p:Configuration=Release /p:Platform=$platform @extraArgs
+            if ($LASTEXITCODE -ne 0) { throw "msbuild failed: $project [$platform] (exit=$LASTEXITCODE)" }
+          }
+          Invoke-MSBuild ".\CombatShell\CombatShell.vcxproj" "Win32" @("/p:ShellDiagnostics=true")
+          Invoke-MSBuild ".\CombatShell\CombatShell.vcxproj" "x64" @("/p:ShellDiagnostics=true")
+          Invoke-MSBuild ".\CombatShellCli.vcxproj" "Win32"
+          Invoke-MSBuild ".\CombatShellCli.vcxproj" "x64"
 
       - name: Build mini example executable
         shell: pwsh
         run: |
-          msbuild .\examples\MiniTarget.vcxproj /m /p:Configuration=Release /p:Platform=Win32
-          msbuild .\examples\MiniTarget.vcxproj /m /p:Configuration=Release /p:Platform=x64
+          $ErrorActionPreference = "Stop"
+          function Invoke-MSBuild([string]$project, [string]$platform) {
+            & msbuild $project /m /p:Configuration=Release /p:Platform=$platform
+            if ($LASTEXITCODE -ne 0) { throw "msbuild failed: $project [$platform] (exit=$LASTEXITCODE)" }
+          }
+          Invoke-MSBuild ".\examples\MiniTarget.vcxproj" "Win32"
+          Invoke-MSBuild ".\examples\MiniTarget.vcxproj" "x64"
 
       - name: Run pack/unpack tests on examples
         shell: pwsh

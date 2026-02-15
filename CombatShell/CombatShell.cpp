@@ -106,7 +106,6 @@ static void RefreshRuntimeImageBase()
 static void CallOriginalEntry32()
 {
 	DWORD target = m_Dlllpbase + (DWORD)g_stud.s_dwOepBase;
-	SHELL_TRACE_HEX("CombatShellEntry:oep_va", target);
 	typedef void(WINAPI* FnOepEntry)();
 	FnOepEntry entry = (FnOepEntry)(ULONG_PTR)target;
 	entry();
