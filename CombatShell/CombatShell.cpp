@@ -117,17 +117,27 @@ static void ShellDiagTrace(const char* stage)
 		return;
 	}
 	static unsigned int traceOffset = 0;
+	static unsigned int helperOffset = 0;
 	const unsigned int cap = (unsigned int)sizeof(g_shellDiagTrace);
+	const unsigned int helperCap = (unsigned int)sizeof(g_dataHlper);
 	if (traceOffset >= cap - 2) {
 		return;
 	}
 
 	const char* p = stage;
 	while (*p && traceOffset < cap - 2) {
-		g_shellDiagTrace[traceOffset++] = *p++;
+		char ch = *p++;
+		g_shellDiagTrace[traceOffset++] = ch;
+		if (helperOffset < helperCap - 2) {
+			g_dataHlper[helperOffset++] = ch;
+		}
 	}
 	g_shellDiagTrace[traceOffset++] = '|';
 	g_shellDiagTrace[traceOffset] = '\0';
+	if (helperOffset < helperCap - 2) {
+		g_dataHlper[helperOffset++] = '|';
+		g_dataHlper[helperOffset] = '\0';
+	}
 }
 static void ShellDiagAppendHex64(const char* key, unsigned long long value)
 {
