@@ -398,6 +398,13 @@ BOOL CompressionData::CleanDirectData(const char* NewAddress, const DWORD & Comp
 #else
 	PIMAGE_NT_HEADERS pNt = (PIMAGE_NT_HEADERS)(((PIMAGE_DOS_HEADER)NewAddress)->e_lfanew + (DWORD)NewAddress);
 #endif
+	if (!pNt)
+		return false;
+#ifndef _WIN64
+	// Must be applied on the final output image header.
+	// Earlier edits can be overwritten by ReFileInit/rebuild stages.
+	pNt->OptionalHeader.DllCharacteristics &= ~IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE;
+#endif
 
 	PIMAGE_DATA_DIRECTORY pDirectory = (PIMAGE_DATA_DIRECTORY)pNt->OptionalHeader.DataDirectory;
 	if (!pDirectory)
