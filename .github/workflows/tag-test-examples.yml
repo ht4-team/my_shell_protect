@@ -197,7 +197,7 @@ jobs:
             }
             if ($idx -lt 0) { return }
             $chars = New-Object System.Collections.Generic.List[byte]
-            for ($k = $idx; $k -lt [Math]::Min($idx + 4096, $bytes.Length); $k++) {
+            for ($k = $idx; $k -lt [Math]::Min($idx + 32768, $bytes.Length); $k++) {
               if ($bytes[$k] -eq 0) { break }
               $chars.Add($bytes[$k]) | Out-Null
             }
