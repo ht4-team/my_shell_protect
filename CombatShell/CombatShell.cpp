@@ -1128,7 +1128,11 @@ void WINAPI CombatShellEntry()
 	g_stud.s_User32 = (DWORD64)MyLoadLibraryExA("user32.dll", NULL, NULL);
 #else
 	DWORD kernel32Base = puGetModule(0xEC1C6278);
-	FnVirtualProtect localVirtualProtect = (FnVirtualProtect)puGetProcAddress(kernel32Base, 0xEF64A41E);
+	FnGetProcAddress localGetProcAddress = (FnGetProcAddress)puGetProcAddress(kernel32Base, 0xBBAFDF85);
+	FnVirtualProtect localVirtualProtect = nullptr;
+	if (localGetProcAddress) {
+		localVirtualProtect = (FnVirtualProtect)localGetProcAddress((HMODULE)kernel32Base, "VirtualProtect");
+	}
 	if (localVirtualProtect) {
 		DWORD oldProtect = 0;
 		DWORD pageBase = ((DWORD)(ULONG_PTR)&g_stud) & ~0xFFF;
