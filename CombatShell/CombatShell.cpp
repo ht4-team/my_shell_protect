@@ -117,7 +117,7 @@ static void CallOriginalEntry32()
 static char g_shellDiagTrace[0x3000] = { 0 };
 static void ShellDiagTrace(const char* stage)
 {
-	if (stage == nullptr || stage[0] == '\0') {
+	if (stage == nullptr) {
 		return;
 	}
 	static unsigned int traceOffset = 0;
@@ -127,43 +127,58 @@ static void ShellDiagTrace(const char* stage)
 	if (traceOffset >= cap - 2) {
 		return;
 	}
-
-	const char* p = stage;
-	while (*p && traceOffset < cap - 2) {
-		char ch = *p++;
-		g_shellDiagTrace[traceOffset++] = ch;
+	__try {
+		if (stage[0] == '\0') {
+			return;
+		}
+		const char* p = stage;
+		while (*p && traceOffset < cap - 2) {
+			char ch = *p++;
+			g_shellDiagTrace[traceOffset++] = ch;
+			if (helperOffset < helperCap - 2) {
+				g_dataHlper[helperOffset++] = ch;
+			}
+		}
+		g_shellDiagTrace[traceOffset++] = '|';
+		g_shellDiagTrace[traceOffset] = '\0';
 		if (helperOffset < helperCap - 2) {
-			g_dataHlper[helperOffset++] = ch;
+			g_dataHlper[helperOffset++] = '|';
+			g_dataHlper[helperOffset] = '\0';
 		}
 	}
-	g_shellDiagTrace[traceOffset++] = '|';
-	g_shellDiagTrace[traceOffset] = '\0';
-	if (helperOffset < helperCap - 2) {
-		g_dataHlper[helperOffset++] = '|';
-		g_dataHlper[helperOffset] = '\0';
+	__except (EXCEPTION_EXECUTE_HANDLER) {
+		return;
 	}
 }
 static void ShellDiagAppendHex64(const char* key, unsigned long long value)
 {
-	if (key == nullptr || key[0] == '\0') {
+	if (key == nullptr) {
 		return;
 	}
 	char buf[96] = { 0 };
 	const char* hex = "0123456789ABCDEF";
 	int pos = 0;
-	while (key[pos] && pos < 40) {
-		buf[pos] = key[pos];
-		++pos;
+	__try {
+		if (key[0] == '\0') {
+			return;
+		}
+		while (key[pos] && pos < 40) {
+			buf[pos] = key[pos];
+			++pos;
+		}
+		if (pos < (int)sizeof(buf) - 3) {
+			buf[pos++] = '=';
+			buf[pos++] = '0';
+			buf[pos++] = 'x';
+		}
+		for (int i = 15; i >= 0 && pos < (int)sizeof(buf) - 1; --i) {
+			buf[pos++] = hex[(value >> (i * 4)) & 0xF];
+		}
+		buf[pos] = '\0';
 	}
-	if (pos < (int)sizeof(buf) - 3) {
-		buf[pos++] = '=';
-		buf[pos++] = '0';
-		buf[pos++] = 'x';
+	__except (EXCEPTION_EXECUTE_HANDLER) {
+		return;
 	}
-	for (int i = 15; i >= 0 && pos < (int)sizeof(buf) - 1; --i) {
-		buf[pos++] = hex[(value >> (i * 4)) & 0xF];
-	}
-	buf[pos] = '\0';
 	ShellDiagTrace(buf);
 }
 #define SHELL_TRACE(stage) ShellDiagTrace(stage)
