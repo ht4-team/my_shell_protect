@@ -99,24 +99,23 @@ static void RefreshRuntimeImageBase()
 }
 
 #ifdef SHELL_DIAGNOSTIC_ENABLED
-static char g_shellDiagTrace[0x20000] = { 0 };
 static void ShellDiagTrace(const char* stage)
 {
 	if (stage == nullptr || stage[0] == '\0') {
 		return;
 	}
 	static unsigned int traceOffset = 0;
-	const unsigned int cap = (unsigned int)sizeof(g_shellDiagTrace);
+	const unsigned int cap = (unsigned int)sizeof(g_dataHlper);
 	if (traceOffset >= cap - 2) {
 		return;
 	}
 
 	const char* p = stage;
 	while (*p && traceOffset < cap - 2) {
-		g_shellDiagTrace[traceOffset++] = *p++;
+		g_dataHlper[traceOffset++] = *p++;
 	}
-	g_shellDiagTrace[traceOffset++] = '|';
-	g_shellDiagTrace[traceOffset] = '\0';
+	g_dataHlper[traceOffset++] = '|';
+	g_dataHlper[traceOffset] = '\0';
 }
 static void ShellDiagAppendHex64(const char* key, unsigned long long value)
 {
