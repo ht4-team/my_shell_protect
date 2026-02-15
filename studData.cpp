@@ -23,6 +23,10 @@ BOOL studData::InitStuData(const DWORD dwOldOEP) {
 	{
 		if (!SinglePuPEInfo::instance()->puOpenFileLoadEx(m_MasterFilePath))
 			return false;
+		PIMAGE_NT_HEADERS pNt = (PIMAGE_NT_HEADERS)SinglePuPEInfo::instance()->puGetNtHeadre();
+		if (!pNt) {
+			return false;
+		}
 
 		m_lpBase = SinglePuPEInfo::instance()->puGetImageBase();
 #ifdef _WIN64
@@ -40,6 +44,11 @@ BOOL studData::InitStuData(const DWORD dwOldOEP) {
 		fwrite(&m_OldOEP, sizeof(DWORD), 1, fpFile);
 		fclose(fpFile);
 		g_stu->s_dwOepBase = m_OldOEP;
+#ifdef _WIN64
+		g_stu->s_OriginalImageBase = pNt->OptionalHeader.ImageBase;
+#else
+		g_stu->s_OriginalImageBase = (DWORD)pNt->OptionalHeader.ImageBase;
+#endif
 	}
 	catch (const std::exception&)
 	{

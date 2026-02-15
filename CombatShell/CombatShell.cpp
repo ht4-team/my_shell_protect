@@ -532,7 +532,12 @@ void ApplyBaseRelocAfterUnpack()
 		SHELL_TRACE("ApplyReloc:no_dir");
 		return;
 	}
-	ULONGLONG delta = (ULONGLONG)m_Dlllpbase - (ULONGLONG)pNt->OptionalHeader.ImageBase;
+	ULONGLONG preferredImageBase = (ULONGLONG)g_stud.s_OriginalImageBase;
+	if (preferredImageBase == 0) {
+		preferredImageBase = (ULONGLONG)pNt->OptionalHeader.ImageBase;
+	}
+	SHELL_TRACE_HEX("ApplyReloc:preferred_base", preferredImageBase);
+	ULONGLONG delta = (ULONGLONG)m_Dlllpbase - preferredImageBase;
 	SHELL_TRACE_HEX("ApplyReloc:delta", delta);
 	if (delta == 0) {
 		SHELL_TRACE("ApplyReloc:delta_zero");
@@ -594,6 +599,63 @@ void ApplyBaseRelocAfterUnpack()
 	SHELL_TRACE_HEX("ApplyReloc:skip_range", skipRange);
 	SHELL_TRACE_HEX("ApplyReloc:skip_protect", skipProtect);
 	SHELL_TRACE("ApplyReloc:end");
+}
+
+static void RestoreRuntimeDataDirectories()
+{
+	PIMAGE_NT_HEADERS pNt = (PIMAGE_NT_HEADERS)(((PIMAGE_DOS_HEADER)m_Dlllpbase)->e_lfanew + (DWORD64)m_Dlllpbase);
+	if (!pNt) {
+		SHELL_TRACE("RestoreDirs:no_nt");
+		return;
+	}
+	SHELL_TRACE("RestoreDirs:start");
+	for (int i = 0; i < 16; ++i)
+	{
+		pNt->OptionalHeader.DataDirectory[i].VirtualAddress = (DWORD)g_stud.s_DataDirectory[i][0];
+		pNt->OptionalHeader.DataDirectory[i].Size = (DWORD)g_stud.s_DataDirectory[i][1];
+	}
+	SHELL_TRACE_HEX("RestoreDirs:import_rva", pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+	SHELL_TRACE_HEX("RestoreDirs:tls_rva", pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress);
+	SHELL_TRACE("RestoreDirs:end");
+}
+
+static void RunTlsCallbacksIfPresent()
+{
+	PIMAGE_NT_HEADERS pNt = (PIMAGE_NT_HEADERS)(((PIMAGE_DOS_HEADER)m_Dlllpbase)->e_lfanew + (DWORD64)m_Dlllpbase);
+	if (!pNt) {
+		SHELL_TRACE("TLS:no_nt");
+		return;
+	}
+	const DWORD tlsRva = pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress;
+	const DWORD tlsSize = pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].Size;
+	SHELL_TRACE_HEX("TLS:rva", tlsRva);
+	SHELL_TRACE_HEX("TLS:size", tlsSize);
+	if (tlsRva == 0 || tlsSize < sizeof(IMAGE_TLS_DIRECTORY)) {
+		SHELL_TRACE("TLS:none");
+		return;
+	}
+#ifdef _WIN64
+	PIMAGE_TLS_DIRECTORY64 pTls = (PIMAGE_TLS_DIRECTORY64)(m_Dlllpbase + tlsRva);
+	PIMAGE_TLS_CALLBACK* pCallbacks = (PIMAGE_TLS_CALLBACK*)pTls->AddressOfCallBacks;
+#else
+	PIMAGE_TLS_DIRECTORY32 pTls = (PIMAGE_TLS_DIRECTORY32)(m_Dlllpbase + tlsRva);
+	PIMAGE_TLS_CALLBACK* pCallbacks = (PIMAGE_TLS_CALLBACK*)pTls->AddressOfCallBacks;
+#endif
+	if (!pCallbacks) {
+		SHELL_TRACE("TLS:no_callbacks");
+		return;
+	}
+	SHELL_TRACE_HEX("TLS:callbacks", (DWORD64)pCallbacks);
+	DWORD callbackCount = 0;
+	while (*pCallbacks && callbackCount < 64)
+	{
+		PIMAGE_TLS_CALLBACK cb = *pCallbacks;
+		SHELL_TRACE_HEX("TLS:cb", (DWORD64)cb);
+		cb((PVOID)m_Dlllpbase, DLL_PROCESS_ATTACH, nullptr);
+		++callbackCount;
+		++pCallbacks;
+	}
+	SHELL_TRACE_HEX("TLS:count", callbackCount);
 }
 
 void RepairTheIAT()
@@ -899,8 +961,12 @@ void WINAPI CombatShellEntry()
 	UnCompression();
 	SHELL_TRACE("CombatShellEntry:before_reloc");
 	ApplyBaseRelocAfterUnpack();
+	SHELL_TRACE("CombatShellEntry:before_restore_dirs");
+	RestoreRuntimeDataDirectories();
 	SHELL_TRACE("CombatShellEntry:before_iat");
 	RepairTheIAT();
+	SHELL_TRACE("CombatShellEntry:before_tls");
+	RunTlsCallbacksIfPresent();
 	SHELL_TRACE("CombatShellEntry:before_oep");
 #ifdef _WIN64
 	CodeExecEntry(g_stud.s_dwOepBase + m_Dlllpbase);

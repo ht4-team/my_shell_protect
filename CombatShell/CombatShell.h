@@ -6,6 +6,7 @@
 	typedef struct _Stud
 	{
 		DWORD64 s_dwOepBase;
+		DWORD64 s_OriginalImageBase;
 		DWORD64 s_Krenel32;
 		DWORD64 s_msvcr100;
 		DWORD64 s_User32;
@@ -26,6 +27,7 @@
 	typedef struct _Stud
 	{
 		DWORD s_dwOepBase;
+		DWORD s_OriginalImageBase;
 		DWORD s_Krenel32;
 		DWORD s_User32;
 		DWORD s_Gdi32;
