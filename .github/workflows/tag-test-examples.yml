@@ -82,6 +82,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist\packed | Out-Null
           New-Item -ItemType Directory -Force -Path dist\packed\x64 | Out-Null
           New-Item -ItemType Directory -Force -Path dist\packed\x86 | Out-Null
+          function Resolve-FirstExistingPath([string[]]$candidates) {
+            foreach ($candidate in $candidates) {
+              if (Test-Path $candidate) { return $candidate }
+            }
+            throw "required file not found. candidates: $($candidates -join ', ')"
+          }
           Enable-LocalDumps "calc.exe"
           Enable-LocalDumps "sys_calc.exe"
           Enable-LocalDumps "mini_target.exe"
@@ -102,7 +108,13 @@ jobs:
           # x86 sample: mini_target.exe + x86 shell
           Copy-Item bin\MiniTarget.exe test\samples\x86\mini_target.exe -Force
           Copy-Item bin\CombatShellCli.exe test\samples\x86\CombatShellCli.exe -Force
-          Copy-Item bin\CombatShell.dll test\samples\x86\CombatShell.dll -Force
+          $x86ShellDll = Resolve-FirstExistingPath @(
+            "bin\CombatShell.dll",
+            "bin\Win32\CombatShell.dll",
+            "bin\Win32\Release\CombatShell.dll",
+            "bin\Release\CombatShell.dll"
+          )
+          Copy-Item $x86ShellDll test\samples\x86\CombatShell.dll -Force
           Copy-Item test\samples\x64\CombatShell.dll dist\packed\x64\CombatShell.dll -Force
           Copy-Item test\samples\x86\CombatShell.dll dist\packed\x86\CombatShell.dll -Force
 
