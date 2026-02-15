@@ -942,12 +942,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 #else
 					__asm {
 						mov	 esi, g_stud.s_dwOepBase;
-						xor	 eax, eax;
-						add  eax, 0x200000;
-						add	 eax, 0x200000;
-						add	 eax, 0x200000;
-						sub  eax, 0x200000;
-						add  esi, eax;
+						add  esi, m_Dlllpbase;
 						call esi;
 					}
 					MyExitProcess(0);
@@ -1011,12 +1006,7 @@ DWORD ProcessCallBack(LPVOID lpThreadParameter)
 #else
 			__asm {
 				mov	 esi, g_stud.s_dwOepBase;
-				xor	 eax, eax;
-				add  eax, 0x200000;
-				add	 eax, 0x200000;
-				add	 eax, 0x200000;
-				sub  eax, 0x200000
-					add  esi, eax;
+				add  esi, m_Dlllpbase;
 				call esi;
 			}
 			MyExitProcess(0);
@@ -1120,12 +1110,7 @@ void WINAPI CombatShellEntry()
 #else
 	__asm {
 		mov	 esi, g_stud.s_dwOepBase;
-		xor	 eax, eax;
-		add  eax, 0x200000;
-		add	 eax, 0x200000;
-		add	 eax, 0x200000;
-		sub  eax, 0x200000;
-		add  esi, eax;
+		add  esi, m_Dlllpbase;
 		call esi;
 	}
 	MyExitProcess(0);
