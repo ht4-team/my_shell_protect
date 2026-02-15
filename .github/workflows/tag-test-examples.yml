@@ -5,6 +5,11 @@ on:
     tags:
       - "t*"
   workflow_dispatch:
+    inputs:
+      shell_diagnostics:
+        description: Build CombatShell with diagnostic instrumentation
+        required: false
+        default: "false"
 
 jobs:
   test-example-pack:
@@ -22,12 +27,14 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          $shellDiagEnabled = "${{ github.event.inputs.shell_diagnostics || 'false' }}"
+          if ($shellDiagEnabled -ne "true") { $shellDiagEnabled = "false" }
           function Invoke-MSBuild([string]$project, [string]$platform, [string[]]$extraArgs = @()) {
             & msbuild $project /m /p:Configuration=Release /p:Platform=$platform @extraArgs
             if ($LASTEXITCODE -ne 0) { throw "msbuild failed: $project [$platform] (exit=$LASTEXITCODE)" }
           }
-          Invoke-MSBuild ".\CombatShell\CombatShell.vcxproj" "Win32" @("/p:ShellDiagnostics=true")
-          Invoke-MSBuild ".\CombatShell\CombatShell.vcxproj" "x64" @("/p:ShellDiagnostics=true")
+          Invoke-MSBuild ".\CombatShell\CombatShell.vcxproj" "Win32" @("/p:ShellDiagnostics=$shellDiagEnabled")
+          Invoke-MSBuild ".\CombatShell\CombatShell.vcxproj" "x64" @("/p:ShellDiagnostics=$shellDiagEnabled")
           Invoke-MSBuild ".\CombatShellCli.vcxproj" "Win32"
           Invoke-MSBuild ".\CombatShellCli.vcxproj" "x64"
 
