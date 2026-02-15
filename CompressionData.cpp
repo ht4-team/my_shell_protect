@@ -222,8 +222,13 @@ BOOL CompressionData::CompressSectionData()
 		void* DataAddress = (void *)(pSections->PointerToRawData + (DWORD64)m_lpBase);
 		DWORD blen = 0;
 		DWORD dwCompressionSize = 0;
+		bool useRawCopyMode = false;
 #ifdef _WIN64
-		bool useRawCopyMode = (pNt->OptionalHeader.FileAlignment <= 0x200);
+		useRawCopyMode = (pNt->OptionalHeader.FileAlignment <= 0x200);
+#else
+		// Stability-first for x86 packed targets.
+		useRawCopyMode = true;
+#endif
 		const char* forceLz4 = getenv("SHELL_PACK_FORCE_LZ4");
 		const char* forceRaw = getenv("SHELL_PACK_FORCE_RAW");
 		if (forceLz4 && forceLz4[0] == '1') {
@@ -252,15 +257,6 @@ BOOL CompressionData::CompressSectionData()
 			}
 			dwCompressionSize = LZ4_compress_default((char*)DataAddress, buf, pSections->SizeOfRawData, blen);
 		}
-#else
-		blen = LZ4_compressBound(pSections->SizeOfRawData);
-		if ((buf = (char*)malloc(sizeof(char) * blen)) == NULL)
-		{
-			AfxMessageBox(L"no enough memory!\n");
-			return -1;
-		}
-		dwCompressionSize = LZ4_compress_default((char*)DataAddress, buf, pSections->SizeOfRawData, blen);
-#endif
 		fwrite(&dwCompressionSize, sizeof(DWORD), 1, fpFile);
 		fflush(fpFile);
 

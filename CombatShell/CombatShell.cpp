@@ -521,13 +521,23 @@ void UnCompression()
 			}
 		}
 #else
-		// 缓冲区  RVA+加载基址  缓冲区大小  压缩过去的大小
-		__try {
-			nRet = LZ4_decompress_safe((char*)(SectionAddress + m_Dlllpbase), (char*)(pSections->VirtualAddress + m_Dlllpbase), g_stud.s_blen[i], pSections->SizeOfRawData);
+		if (g_stud.s_SaveExportTabRVA == 1) {
+			BYTE* dst = (BYTE*)(pSections->VirtualAddress + m_Dlllpbase);
+			BYTE* src = (BYTE*)(SectionAddress + m_Dlllpbase);
+			for (DWORD c = 0; c < g_stud.s_blen[i]; ++c) {
+				dst[c] = src[c];
+			}
+			nRet = (int)g_stud.s_blen[i];
 		}
-		__except (EXCEPTION_EXECUTE_HANDLER) {
-			SHELL_TRACE_HEX("UnCompression:seh", (DWORD64)GetExceptionCode());
-			return;
+		else {
+			// 缓冲区  RVA+加载基址  缓冲区大小  压缩过去的大小
+			__try {
+				nRet = LZ4_decompress_safe((char*)(SectionAddress + m_Dlllpbase), (char*)(pSections->VirtualAddress + m_Dlllpbase), g_stud.s_blen[i], pSections->SizeOfRawData);
+			}
+			__except (EXCEPTION_EXECUTE_HANDLER) {
+				SHELL_TRACE_HEX("UnCompression:seh", (DWORD64)GetExceptionCode());
+				return;
+			}
 		}
 #endif
 		SHELL_TRACE_HEX("UnCompression:ret", (DWORD64)nRet);
