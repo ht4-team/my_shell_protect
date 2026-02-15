@@ -205,6 +205,39 @@ jobs:
               [System.Text.Encoding]::ASCII.GetString($chars.ToArray()) |
                 Out-File -FilePath "dist\diagnostics\${label}_shell_trace.txt" -Encoding utf8
             }
+
+            # Fallback: collect multiple known markers to improve x86 dump visibility.
+            if (-not (Test-Path "dist\diagnostics\${label}_shell_trace.txt")) {
+              $markers = @(
+                "CombatShellEntry:start|",
+                "ApplyReloc:start|",
+                "RepairTheIAT:start|",
+                "VmEntry:start|"
+              )
+              foreach ($m in $markers) {
+                $needle = [System.Text.Encoding]::ASCII.GetBytes($m)
+                $idx2 = -1
+                for ($i = 0; $i -le $bytes.Length - $needle.Length; $i++) {
+                  $ok = $true
+                  for ($j = 0; $j -lt $needle.Length; $j++) {
+                    if ($bytes[$i + $j] -ne $needle[$j]) { $ok = $false; break }
+                  }
+                  if ($ok) { $idx2 = $i; break }
+                }
+                if ($idx2 -ge 0) {
+                  $chars2 = New-Object System.Collections.Generic.List[byte]
+                  for ($k = $idx2; $k -lt [Math]::Min($idx2 + 32768, $bytes.Length); $k++) {
+                    if ($bytes[$k] -eq 0) { break }
+                    $chars2.Add($bytes[$k]) | Out-Null
+                  }
+                  if ($chars2.Count -gt 0) {
+                    [System.Text.Encoding]::ASCII.GetString($chars2.ToArray()) |
+                      Out-File -FilePath "dist\diagnostics\${label}_shell_trace.txt" -Encoding utf8
+                    break
+                  }
+                }
+              }
+            }
           }
 
           function Analyze-Dump([string]$exeName, [string]$label) {
