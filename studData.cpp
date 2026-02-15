@@ -4,11 +4,43 @@
 #include "puPEinfoData.h"
 #include "CompressionData.h"
 #include <io.h>
+#include <string.h>
 
 #define NEWSECITONNAME ".VMP"
 
 extern _Stud*	g_stu;
 extern char		g_CombatShellDataLocalFile[MAX_PATH];
+
+static DWORD ResolveExportRva(HMODULE moduleBase, const char* exportName)
+{
+	if (!moduleBase || !exportName || exportName[0] == '\0') {
+		return 0;
+	}
+	PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)moduleBase;
+	if (dos->e_magic != IMAGE_DOS_SIGNATURE) {
+		return 0;
+	}
+	PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)((BYTE*)moduleBase + dos->e_lfanew);
+	if (nt->Signature != IMAGE_NT_SIGNATURE) {
+		return 0;
+	}
+	const DWORD expRva = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
+	if (!expRva) {
+		return 0;
+	}
+	PIMAGE_EXPORT_DIRECTORY exp = (PIMAGE_EXPORT_DIRECTORY)((BYTE*)moduleBase + expRva);
+	DWORD* names = (DWORD*)((BYTE*)moduleBase + exp->AddressOfNames);
+	WORD* ordinals = (WORD*)((BYTE*)moduleBase + exp->AddressOfNameOrdinals);
+	DWORD* funcs = (DWORD*)((BYTE*)moduleBase + exp->AddressOfFunctions);
+	for (DWORD i = 0; i < exp->NumberOfNames; ++i) {
+		const char* name = (const char*)((BYTE*)moduleBase + names[i]);
+		if (name && strcmp(name, exportName) == 0) {
+			WORD ord = ordinals[i];
+			return funcs[ord];
+		}
+	}
+	return 0;
+}
 
 studData::studData()
 {
@@ -88,11 +120,25 @@ BOOL studData::LoadLibraryStud()
 	if (dexportAddress == nullptr) {
 		dexportAddress = GetProcAddress((HMODULE)m_studBase, "CombatShellEntry");
 	}
+	DWORD entryRva = ResolveExportRva((HMODULE)m_studBase, "VmEntry");
+	if (entryRva == 0) {
+		entryRva = ResolveExportRva((HMODULE)m_studBase, "CombatShellEntry");
+	}
+	if (entryRva != 0) {
+		dexportAddress = (void*)((BYTE*)m_studBase + entryRva);
+	}
 #else
 	dexportAddress = GetProcAddress((HMODULE)m_studBase, "CombatShellEntry");
 	if (dexportAddress == nullptr) {
 		// x86 stdcall export may be decorated.
 		dexportAddress = GetProcAddress((HMODULE)m_studBase, "_CombatShellEntry@0");
+	}
+	DWORD entryRva = ResolveExportRva((HMODULE)m_studBase, "_CombatShellEntry@0");
+	if (entryRva == 0) {
+		entryRva = ResolveExportRva((HMODULE)m_studBase, "CombatShellEntry");
+	}
+	if (entryRva != 0) {
+		dexportAddress = (void*)((BYTE*)m_studBase + entryRva);
 	}
 #endif
 	if (dexportAddress == nullptr) {
