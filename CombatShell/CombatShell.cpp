@@ -539,6 +539,13 @@ void ApplyBaseRelocAfterUnpack()
 	}
 	DWORD relocRva = pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].VirtualAddress;
 	DWORD relocSize = pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC].Size;
+	if ((relocRva == 0 || relocSize == 0) &&
+		g_stud.s_DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC][0] != 0 &&
+		g_stud.s_DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC][1] != 0) {
+		relocRva = (DWORD)g_stud.s_DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC][0];
+		relocSize = (DWORD)g_stud.s_DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC][1];
+		SHELL_TRACE("ApplyReloc:use_saved_dir");
+	}
 	SHELL_TRACE_HEX("ApplyReloc:dir_rva", relocRva);
 	SHELL_TRACE_HEX("ApplyReloc:dir_size", relocSize);
 	if (relocRva == 0 || relocSize == 0) {
