@@ -793,10 +793,22 @@ void RepairTheIAT()
 		}
 		PIMAGE_THUNK_DATA pThunkINT = (PIMAGE_THUNK_DATA)(thunkRva + dwMoudle);
 		PIMAGE_THUNK_DATA pThunkIAT = (PIMAGE_THUNK_DATA)(pImport->FirstThunk + dwMoudle);
-		for (DWORD thunkIndex = 0; thunkIndex < 8192 && pThunkINT->u1.AddressOfData; ++thunkIndex)
+		for (DWORD thunkIndex = 0; thunkIndex < 8192; ++thunkIndex)
 		{
-			MyVirtualProtect((PVOID64)pThunkIAT, 0x16, PAGE_READWRITE, &Att_old);
+			const DWORD intRva = (DWORD)((DWORD64)pThunkINT - dwMoudle);
+			const DWORD iatRva = (DWORD)((DWORD64)pThunkIAT - dwMoudle);
+			if (!IsRvaInsideImage(intRva, sizeOfImage, sizeof(IMAGE_THUNK_DATA)) ||
+				!IsRvaInsideImage(iatRva, sizeOfImage, sizeof(IMAGE_THUNK_DATA))) {
+				SHELL_TRACE("RepairTheIAT:thunk_oob");
+				break;
+			}
+
 			const ULONGLONG thunkValue = pThunkINT->u1.AddressOfData;
+			if (thunkValue == 0) {
+				break;
+			}
+
+			MyVirtualProtect((PVOID64)pThunkIAT, 0x16, PAGE_READWRITE, &Att_old);
 #ifdef _WIN64
 			if (!IMAGE_SNAP_BY_ORDINAL64(thunkValue))
 			{
@@ -879,11 +891,6 @@ void RepairTheIAT()
 			MyVirtualProtect((PVOID64)pThunkIAT, 0x16, Att_old, &Att_old);
 			++pThunkINT;
 			++pThunkIAT;
-
-			const DWORD nextIatRva = (DWORD)((DWORD64)pThunkIAT - dwMoudle);
-			if (!IsRvaInsideImage(nextIatRva, sizeOfImage, sizeof(IMAGE_THUNK_DATA))) {
-				break;
-			}
 		}
 		SHELL_TRACE_HEX("RepairTheIAT:desc_done", importIndex);
 		++pImport;
