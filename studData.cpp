@@ -90,7 +90,15 @@ BOOL studData::LoadLibraryStud()
 	}
 #else
 	dexportAddress = GetProcAddress((HMODULE)m_studBase, "CombatShellEntry");
+	if (dexportAddress == nullptr) {
+		// x86 stdcall export may be decorated.
+		dexportAddress = GetProcAddress((HMODULE)m_studBase, "_CombatShellEntry@0");
+	}
 #endif
+	if (dexportAddress == nullptr) {
+		AfxMessageBox(L"CombatShell 导出入口获取失败");
+		return false;
+	}
 	// ImageBase
 #ifdef _WIN64
 	m_dwStudSectionAddress64 = (DWORD64)SinglePuPEInfo::instance()->puGetSectionAddress((char *)m_studBase, (BYTE *)".text");
