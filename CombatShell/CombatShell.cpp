@@ -99,12 +99,12 @@ static void RefreshRuntimeImageBase()
 }
 
 #ifndef _WIN64
-typedef void (WINAPI* FnOriginalEntry32)();
 static void CallOriginalEntry32()
 {
-	FnOriginalEntry32 fn = (FnOriginalEntry32)(m_Dlllpbase + g_stud.s_dwOepBase);
-	if (fn) {
-		fn();
+	DWORD target = m_Dlllpbase + (DWORD)g_stud.s_dwOepBase;
+	__asm {
+		mov eax, target
+		jmp eax
 	}
 }
 #endif
