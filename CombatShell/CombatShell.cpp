@@ -609,11 +609,18 @@ static void RestoreRuntimeDataDirectories()
 		return;
 	}
 	SHELL_TRACE("RestoreDirs:start");
+	DWORD oldProtect = 0;
+	const SIZE_T dirBytes = sizeof(pNt->OptionalHeader.DataDirectory);
+	if (!MyVirtualProtect(&pNt->OptionalHeader.DataDirectory[0], dirBytes, PAGE_READWRITE, &oldProtect)) {
+		SHELL_TRACE("RestoreDirs:vp_fail");
+		return;
+	}
 	for (int i = 0; i < 16; ++i)
 	{
 		pNt->OptionalHeader.DataDirectory[i].VirtualAddress = (DWORD)g_stud.s_DataDirectory[i][0];
 		pNt->OptionalHeader.DataDirectory[i].Size = (DWORD)g_stud.s_DataDirectory[i][1];
 	}
+	MyVirtualProtect(&pNt->OptionalHeader.DataDirectory[0], dirBytes, oldProtect, &oldProtect);
 	SHELL_TRACE_HEX("RestoreDirs:import_rva", pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
 	SHELL_TRACE_HEX("RestoreDirs:tls_rva", pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS].VirtualAddress);
 	SHELL_TRACE("RestoreDirs:end");
