@@ -83,6 +83,10 @@ FnCreateSolidBrush MyCreateSolidBrush = nullptr;
 FnGetModuleHandleW MyGetModuleHandleW = nullptr;
 FnLoadLibraryExA MyLoadLibraryExA = nullptr;
 FnGetProcAddress MyGetProcAddress = nullptr;
+typedef LPTOP_LEVEL_EXCEPTION_FILTER(WINAPI* FnSetUnhandledExceptionFilter)(LPTOP_LEVEL_EXCEPTION_FILTER);
+typedef PVOID(WINAPI* FnAddVectoredExceptionHandler)(ULONG, PVECTORED_EXCEPTION_HANDLER);
+FnSetUnhandledExceptionFilter MySetUnhandledExceptionFilter = nullptr;
+FnAddVectoredExceptionHandler MyAddVectoredExceptionHandler = nullptr;
 
 static void RefreshRuntimeImageBase()
 {
@@ -168,6 +172,35 @@ static void ShellDiagAppendHex64(const char* key, unsigned long long value)
 #define SHELL_TRACE(stage) ((void)0)
 #define SHELL_TRACE_HEX(key, value) ((void)0)
 #endif
+
+static LONG WINAPI ShellTopLevelExceptionFilter(EXCEPTION_POINTERS* info)
+{
+	SHELL_TRACE("Crash:uef");
+	if (info && info->ExceptionRecord) {
+		SHELL_TRACE_HEX("Crash:code", (DWORD64)info->ExceptionRecord->ExceptionCode);
+		SHELL_TRACE_HEX("Crash:addr", (DWORD64)info->ExceptionRecord->ExceptionAddress);
+	}
+	if (info && info->ContextRecord) {
+#ifdef _WIN64
+		SHELL_TRACE_HEX("Crash:rip", (DWORD64)info->ContextRecord->Rip);
+		SHELL_TRACE_HEX("Crash:rsp", (DWORD64)info->ContextRecord->Rsp);
+#else
+		SHELL_TRACE_HEX("Crash:eip", (DWORD64)info->ContextRecord->Eip);
+		SHELL_TRACE_HEX("Crash:esp", (DWORD64)info->ContextRecord->Esp);
+#endif
+	}
+	return EXCEPTION_CONTINUE_SEARCH;
+}
+
+static LONG WINAPI ShellVectoredExceptionHandler(PEXCEPTION_POINTERS info)
+{
+	SHELL_TRACE("Crash:veh");
+	if (info && info->ExceptionRecord) {
+		SHELL_TRACE_HEX("Crash:veh_code", (DWORD64)info->ExceptionRecord->ExceptionCode);
+		SHELL_TRACE_HEX("Crash:veh_addr", (DWORD64)info->ExceptionRecord->ExceptionAddress);
+	}
+	return EXCEPTION_CONTINUE_SEARCH;
+}
 
 // x32 asm
 #ifndef _WIN64
@@ -1100,6 +1133,16 @@ void WINAPI CombatShellEntry()
 	MyVirtualProtect = (FnVirtualProtect)puGetProcAddress(g_stud.s_Krenel32, 0xEF64A41E);
 	// GetMyGetProcessAddress
 	MyGetProcAddress = (FnGetProcAddress)puGetProcAddress(g_stud.s_Krenel32, 0xBBAFDF85);
+	MySetUnhandledExceptionFilter = (FnSetUnhandledExceptionFilter)MyGetProcAddress((HMODULE)g_stud.s_Krenel32, "SetUnhandledExceptionFilter");
+	MyAddVectoredExceptionHandler = (FnAddVectoredExceptionHandler)MyGetProcAddress((HMODULE)g_stud.s_Krenel32, "AddVectoredExceptionHandler");
+	if (MySetUnhandledExceptionFilter) {
+		MySetUnhandledExceptionFilter(ShellTopLevelExceptionFilter);
+		SHELL_TRACE("Crash:uef_set");
+	}
+	if (MyAddVectoredExceptionHandler) {
+		MyAddVectoredExceptionHandler(1, ShellVectoredExceptionHandler);
+		SHELL_TRACE("Crash:veh_set");
+	}
 
 	// Stable shell path: unpack, repair IAT, then jump to original entry point.
 	SHELL_TRACE("CombatShellEntry:before_unpack");
