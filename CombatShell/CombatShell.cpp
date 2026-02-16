@@ -1128,29 +1128,44 @@ void WINAPI CombatShellEntry()
 	g_stud.s_User32 = (DWORD64)MyLoadLibraryExA("user32.dll", NULL, NULL);
 #else
 	DWORD kernel32Base = puGetModule(0xEC1C6278);
-	FnGetProcAddress localGetProcAddress = (FnGetProcAddress)puGetProcAddress(kernel32Base, 0xBBAFDF85);
-	FnVirtualProtect localVirtualProtect = nullptr;
-	if (localGetProcAddress) {
-		localVirtualProtect = (FnVirtualProtect)localGetProcAddress((HMODULE)kernel32Base, "VirtualProtect");
+	if (!kernel32Base) {
+		return;
 	}
+	FnGetProcAddress localGetProcAddress = (FnGetProcAddress)puGetProcAddress(kernel32Base, 0xBBAFDF85);
+	if (!localGetProcAddress) {
+		return;
+	}
+	FnVirtualProtect localVirtualProtect = nullptr;
+	localVirtualProtect = (FnVirtualProtect)localGetProcAddress((HMODULE)kernel32Base, "VirtualProtect");
 	if (localVirtualProtect) {
 		DWORD oldProtect = 0;
 		DWORD pageBase = ((DWORD)(ULONG_PTR)&g_stud) & ~0xFFF;
 		localVirtualProtect((LPVOID)pageBase, 0x8000, PAGE_EXECUTE_READWRITE, &oldProtect);
 	}
 	g_stud.s_Krenel32 = kernel32Base;
+	MyGetProcAddress = localGetProcAddress;
 	MyVirtualProtect = localVirtualProtect;
-	MyLoadLibraryExA = (FnLoadLibraryExA)puGetProcAddress(g_stud.s_Krenel32, 0xC0D83287);
-	g_stud.s_User32 = (DWORD64)MyLoadLibraryExA("user32.dll", NULL, NULL);
+	MyLoadLibraryExA = (FnLoadLibraryExA)localGetProcAddress((HMODULE)g_stud.s_Krenel32, "LoadLibraryExA");
+	if (!MyLoadLibraryExA) {
+		MyLoadLibraryExA = (FnLoadLibraryExA)puGetProcAddress(g_stud.s_Krenel32, 0xC0D83287);
+	}
+	if (MyLoadLibraryExA) {
+		g_stud.s_User32 = (DWORD64)MyLoadLibraryExA("user32.dll", NULL, NULL);
+	}
 #endif
 	SHELL_TRACE("CombatShellEntry:module_resolved");
 	// VM_Start_start
 	// GetLoadlibraryExA
-	MyLoadLibraryExA = (FnLoadLibraryExA)puGetProcAddress(g_stud.s_Krenel32, 0xC0D83287);
+	if (!MyLoadLibraryExA) {
+		MyLoadLibraryExA = (FnLoadLibraryExA)puGetProcAddress(g_stud.s_Krenel32, 0xC0D83287);
+	}
 	// GetExitProcW
 	MyExitProcess = (FnExitProcess)puGetProcAddress(g_stud.s_Krenel32, 0x4FD18963);
 	// GetGetModuleW
 	MyGetModuleHandleW = (FnGetModuleHandleW)puGetProcAddress(g_stud.s_Krenel32, 0xF4E2F2C8);
+	if (!MyLoadLibraryExA || !MyExitProcess || !MyGetModuleHandleW) {
+		return;
+	}
 	RefreshRuntimeImageBase();
 	SHELL_TRACE("CombatShellEntry:imagebase_ready");
 	SHELL_TRACE_HEX("CombatShellEntry:imagebase", m_Dlllpbase);
