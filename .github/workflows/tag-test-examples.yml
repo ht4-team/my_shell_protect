@@ -27,8 +27,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $shellDiagEnabled = "${{ github.event.inputs.shell_diagnostics || 'false' }}"
-          if ($shellDiagEnabled -ne "true") { $shellDiagEnabled = "false" }
+          $shellDiagEnabled = "${{ github.event.inputs.shell_diagnostics || 'true' }}"
+          if ($shellDiagEnabled -ne "false") { $shellDiagEnabled = "true" }
           function Invoke-MSBuild([string]$project, [string]$platform, [string[]]$extraArgs = @()) {
             & msbuild $project /m /p:Configuration=Release /p:Platform=$platform @extraArgs
             if ($LASTEXITCODE -ne 0) { throw "msbuild failed: $project [$platform] (exit=$LASTEXITCODE)" }
@@ -159,16 +159,18 @@ jobs:
           .\CombatShellCli.exe pack .\calc.exe
           .\CombatShellCli.exe inspect .\calc.exe
           Copy-Item .\calc.exe ..\..\..\dist\packed\x64\calc_x64_packed.exe -Force
-          try {
-            Mark-Step "x64:calc-packed-run:start"
-            Assert-LaunchOrCollect ".\calc.exe" "calc_x64_packed"
-            Mark-Step "x64:calc-unpack:start"
-            .\CombatShellCli.exe unpack .\calc.exe
-            .\CombatShellCli.exe inspect .\calc.exe
-            Assert-LaunchOrCollect ".\calc.exe" "calc_x64_unpacked"
-          } catch {
-            Write-Warning "calc_x64 packed validation failed: $($_.Exception.Message)"
+          Mark-Step "x64:calc-packed-run:start"
+          Assert-LaunchOrCollect ".\calc.exe" "calc_x64_packed"
+          if (Test-Path .\CombatShell_trace.log) {
+            Copy-Item .\CombatShell_trace.log ..\..\..\dist\diagnostics\calc_x64_packed_trace.log -Force
+            Write-Host "--- calc_x64 packed shell trace ---"
+            Get-Content .\CombatShell_trace.log
+            Write-Host "--- end trace ---"
           }
+          Mark-Step "x64:calc-unpack:start"
+          .\CombatShellCli.exe unpack .\calc.exe
+          .\CombatShellCli.exe inspect .\calc.exe
+          Assert-LaunchOrCollect ".\calc.exe" "calc_x64_unpacked"
           Mark-Step "x64:calc-unpack:done"
 
           if (Test-Path .\sys_calc.exe) {
@@ -357,22 +359,21 @@ jobs:
           Enable-LocalDumps "mini_target_x86_packed.exe"
 
           Copy-Item .\dist\packed\x64\calc_x64_packed.exe .\dist\packed\calc_isolated\calc_x64_packed.exe -Force
-          try {
-            Assert-LaunchOrCollect ".\dist\packed\calc_isolated\calc_x64_packed.exe" "calc_x64_packed_isolated" "calc_x64_packed.exe"
-          } catch {
-            Write-Warning "calc_x64_packed_isolated launch failed: $($_.Exception.Message)"
-          }
-          try {
-            Assert-LaunchOrCollect ".\dist\packed\x64\calc_x64_packed.exe" "calc_x64_packed" "calc_x64_packed.exe"
-          } catch {
-            Write-Warning "calc_x64_packed launch failed: $($_.Exception.Message)"
-          }
-          if (Test-Path .\dist\packed\x64\sys_calc_x64_packed.exe) {
-            try {
-              Assert-LaunchOrCollect ".\dist\packed\x64\sys_calc_x64_packed.exe" "sys_calc_x64_packed" "sys_calc_x64_packed.exe"
-            } catch {
-              Write-Warning "sys_calc packed launch failed: $($_.Exception.Message)"
+          Assert-LaunchOrCollect ".\dist\packed\calc_isolated\calc_x64_packed.exe" "calc_x64_packed_isolated" "calc_x64_packed.exe"
+          # Collect trace files from wherever the packed binary ran
+          foreach ($traceDir in @(".\dist\packed\calc_isolated", ".\dist\packed\x64", ".\dist\packed\x86")) {
+            $traceFile = Join-Path $traceDir "CombatShell_trace.log"
+            if (Test-Path $traceFile) {
+              $label = ($traceDir -replace '[\\./]', '_').Trim('_')
+              Copy-Item $traceFile ".\dist\diagnostics\${label}_shell_trace.log" -Force
+              Write-Host "--- shell trace from $traceDir ---"
+              Get-Content $traceFile
+              Write-Host "--- end trace ---"
             }
+          }
+          Assert-LaunchOrCollect ".\dist\packed\x64\calc_x64_packed.exe" "calc_x64_packed" "calc_x64_packed.exe"
+          if (Test-Path .\dist\packed\x64\sys_calc_x64_packed.exe) {
+            Assert-LaunchOrCollect ".\dist\packed\x64\sys_calc_x64_packed.exe" "sys_calc_x64_packed" "sys_calc_x64_packed.exe"
           }
 
           Assert-LaunchOrCollect ".\dist\packed\x64\mini_target_x64_packed.exe" "mini_target_x64_packed" "mini_target_x64_packed.exe"

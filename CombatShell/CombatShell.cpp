@@ -180,11 +180,37 @@ static void ShellDiagAppendHex64(const char* key, unsigned long long value)
 	}
 	ShellDiagTrace(buf);
 }
+static void ShellDiagFlushToFile()
+{
+	if (!MyGetProcAddress || !g_stud.s_Krenel32) return;
+	typedef HANDLE(WINAPI* FnCreateFileA)(LPCSTR, DWORD, DWORD, LPVOID, DWORD, DWORD, HANDLE);
+	typedef BOOL(WINAPI* FnWriteFileA)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED);
+	typedef BOOL(WINAPI* FnCloseHandleA)(HANDLE);
+	FnCreateFileA localCreateFileA = (FnCreateFileA)MyGetProcAddress((HMODULE)g_stud.s_Krenel32, "CreateFileA");
+	FnWriteFileA localWriteFile = (FnWriteFileA)MyGetProcAddress((HMODULE)g_stud.s_Krenel32, "WriteFile");
+	FnCloseHandleA localCloseHandle = (FnCloseHandleA)MyGetProcAddress((HMODULE)g_stud.s_Krenel32, "CloseHandle");
+	if (!localCreateFileA || !localWriteFile || !localCloseHandle) return;
+	__try {
+		HANDLE hFile = localCreateFileA("CombatShell_trace.log",
+			GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+		if (hFile == INVALID_HANDLE_VALUE) return;
+		DWORD len = 0;
+		while (g_shellDiagTrace[len] && len < sizeof(g_shellDiagTrace)) ++len;
+		DWORD written = 0;
+		localWriteFile(hFile, g_shellDiagTrace, len, &written, NULL);
+		localCloseHandle(hFile);
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER) {
+		return;
+	}
+}
 #define SHELL_TRACE(stage) ShellDiagTrace(stage)
 #define SHELL_TRACE_HEX(key, value) ShellDiagAppendHex64((key), (unsigned long long)(value))
+#define SHELL_FLUSH() ShellDiagFlushToFile()
 #else
 #define SHELL_TRACE(stage) ((void)0)
 #define SHELL_TRACE_HEX(key, value) ((void)0)
+#define SHELL_FLUSH() ((void)0)
 #endif
 
 static LONG WINAPI ShellTopLevelExceptionFilter(EXCEPTION_POINTERS* info)
@@ -203,6 +229,7 @@ static LONG WINAPI ShellTopLevelExceptionFilter(EXCEPTION_POINTERS* info)
 		SHELL_TRACE_HEX("Crash:esp", (DWORD64)info->ContextRecord->Esp);
 #endif
 	}
+	SHELL_FLUSH();
 	return EXCEPTION_CONTINUE_SEARCH;
 }
 
@@ -1197,6 +1224,7 @@ void WINAPI CombatShellEntry()
 	SHELL_TRACE("CombatShellEntry:before_tls");
 	RunTlsCallbacksIfPresent();
 	SHELL_TRACE("CombatShellEntry:before_oep");
+	SHELL_FLUSH();
 #ifdef _WIN64
 	CodeExecEntry(g_stud.s_dwOepBase + m_Dlllpbase);
 	MyExitProcess(0);
