@@ -548,6 +548,8 @@ void UnCompression()
 			pSection->SizeOfRawData = g_stud.s_SectionOffsetAndSize[i][0];
 		if (0 != g_stud.s_SectionOffsetAndSize[i][1])
 			pSection->PointerToRawData = g_stud.s_SectionOffsetAndSize[i][1];
+		if (0 != g_stud.s_SectionCharacteristics[i])
+			pSection->Characteristics = g_stud.s_SectionCharacteristics[i];
 		MyVirtualProtect(pSection, 0x8, Att_old, &Att_old);
 		++pSection;
 	}

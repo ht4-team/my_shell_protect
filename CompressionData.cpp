@@ -509,8 +509,16 @@ BOOL CompressionData::CleanDirectData(const char* NewAddress, const DWORD & Comp
 		fwrite(&pSection->SizeOfRawData, sizeof(DWORD), 1, fpFile);
 		fwrite(&pSection->PointerToRawData, sizeof(DWORD), 1, fpFile);
 		fflush(fpFile);
+		// Save original Characteristics before modifying them.
+		g_stu->s_SectionCharacteristics[i] = pSection->Characteristics;
 		pSection->SizeOfRawData = 0;
 		pSection->PointerToRawData = 0;
+		// Sections with SizeOfRawData=0 must use CNT_UNINITIALIZED_DATA; leaving
+		// CNT_CODE or CNT_INITIALIZED_DATA on an empty section violates the PE
+		// spec and can trigger STATUS_INVALID_IMAGE_FORMAT on strict loaders.
+		pSection->Characteristics = (pSection->Characteristics
+			& ~(IMAGE_SCN_CNT_CODE | IMAGE_SCN_CNT_INITIALIZED_DATA))
+			| IMAGE_SCN_CNT_UNINITIALIZED_DATA;
 		++pSection;
 	}
 

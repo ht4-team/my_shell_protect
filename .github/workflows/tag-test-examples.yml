@@ -162,15 +162,31 @@ jobs:
               $name = [System.Text.Encoding]::ASCII.GetString($bytes, $so, 8).TrimEnd([char]0)
               $rawSize = [BitConverter]::ToUInt32($bytes, $so + 16)
               $rawPtr  = [BitConverter]::ToUInt32($bytes, $so + 20)
+              $chars   = [BitConverter]::ToUInt32($bytes, $so + 36)
               if ($rawSize -gt 0) {
                 if ($rawPtr -lt $prevRaw) {
                   throw "PE section [$name] RawPtr=0x$($rawPtr.ToString('X')) < prev=0x$($prevRaw.ToString('X')): non-monotonic raw offsets will cause 0xC000007B on Win10+"
                 }
                 $prevRaw = $rawPtr
               }
-              Write-Host "  [$i] $($name.PadRight(8)) VA=0x$([BitConverter]::ToUInt32($bytes,$so+12).ToString('X8')) Raw=0x$($rawPtr.ToString('X8')) RawSz=0x$($rawSize.ToString('X8'))"
+              # Sections with no raw data must use CNT_UNINITIALIZED_DATA (0x80),
+              # not CNT_CODE (0x20) or CNT_INITIALIZED_DATA (0x40).
+              if ($rawSize -eq 0 -and $rawPtr -eq 0) {
+                $cntCode = $chars -band 0x20
+                $cntInit = $chars -band 0x40
+                $cntUninit = $chars -band 0x80
+                if (($cntCode -ne 0 -or $cntInit -ne 0) -and $cntUninit -eq 0) {
+                  throw "PE section [$name] has SizeOfRawData=0 but Characteristics=0x$($chars.ToString('X')) still has CNT_CODE/CNT_INITIALIZED_DATA without CNT_UNINITIALIZED_DATA"
+                }
+              }
+              $flagStr = ""
+              if ($chars -band 0x20) { $flagStr += "CODE " }
+              if ($chars -band 0x40) { $flagStr += "IDATA " }
+              if ($chars -band 0x80) { $flagStr += "UDATA " }
+              Write-Host "  [$i] $($name.PadRight(8)) VA=0x$([BitConverter]::ToUInt32($bytes,$so+12).ToString('X8')) Raw=0x$($rawPtr.ToString('X8')) RawSz=0x$($rawSize.ToString('X8')) Chars=0x$($chars.ToString('X8')) $flagStr"
             }
             Write-Host "PE section raw offsets: monotonic OK"
+            Write-Host "PE section content-type flags: consistent OK"
           }
 
           Push-Location test\samples\x64

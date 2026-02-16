@@ -21,9 +21,10 @@
 		BOOL s_OneSectionSizeofData;
 		DWORD64 s_CompressionSectionRva;
 		DWORD64 s_SaveExportTabRVA;
+		DWORD s_SectionCharacteristics[20];
 	}Stud;
 #else
-	//  /NODEFAULTLIB:LIBCMT.lib 
+	//  /NODEFAULTLIB:LIBCMT.lib
 	typedef struct _Stud
 	{
 		DWORD s_dwOepBase;
@@ -40,6 +41,7 @@
 		BOOL s_OneSectionSizeofData;
 		DWORD s_CompressionSectionRva;
 		DWORD s_SaveExportTabRVA;
+		DWORD s_SectionCharacteristics[20];
 	}Stud;
 #endif
 
