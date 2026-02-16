@@ -195,6 +195,7 @@ BOOL CompressionData::CompressSectionData()
 
 	// pe标准大小对齐后（加载基址 + .text->pointertorawdata的数据）= 大小
 	DWORD pStandardHeadersize = psection->PointerToRawData;
+	const DWORD fileAlignment = pNt->OptionalHeader.FileAlignment ? pNt->OptionalHeader.FileAlignment : 0x200;
 
 	char* SaveCompressData = (char*)malloc(m_hFileSize);
 	if (!SaveCompressData)
@@ -286,28 +287,28 @@ BOOL CompressionData::CompressSectionData()
 	if (fpFile)
 		fclose(fpFile);
 
-	// 数据对齐 0x400 + (压缩后的大小 / 0x200 + ----压缩后的大小 % 0x200 ? 1 : 0) 0x200;
+	// 按目标 PE 的 FileAlignment 对压缩数据做文件对齐。
 	DWORD Size = 0;
-	if (ComressTotalSize % 0x200 == 0)
+	if (ComressTotalSize % fileAlignment == 0)
 	{
-		Size = pStandardHeadersize + ((ComressTotalSize / 0x200) * 0x200);
+		Size = pStandardHeadersize + ((ComressTotalSize / fileAlignment) * fileAlignment);
 		int a = 10;
 	}
 	else
 	{
-		Size = pStandardHeadersize + (((ComressTotalSize / 0x200) + 1) * 0x200);
+		Size = pStandardHeadersize + (((ComressTotalSize / fileAlignment) + 1) * fileAlignment);
 		int a = 10;
 	}
 
 
 	// 创建一个新区段
-	DWORD ModifySize = Size - 0x400;
+	DWORD ModifySize = Size - pStandardHeadersize;
 	AddCompreDataSection(ModifySize);
 
 	// 重载文件 - 修改新区段的信息数据 文件偏移 0x400  大小 压缩后数据对齐大小
 	ReFileInit();
 	BYTE byteName[] = ".UPX";
-	SinglePuPEInfo::instance()->puSetFileoffsetAndFileSize(m_lpBase, 0x400, ModifySize, byteName);
+	SinglePuPEInfo::instance()->puSetFileoffsetAndFileSize(m_lpBase, pStandardHeadersize, ModifySize, byteName);
 	BYTE byteNmase[] = ".UPX";
 	PIMAGE_SECTION_HEADER compSectionAddress = SinglePuPEInfo::instance()->puGetSectionAddress((char*)m_lpBase, byteNmase);
 	if (!compSectionAddress)
