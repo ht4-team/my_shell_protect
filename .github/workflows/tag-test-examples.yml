@@ -151,7 +151,7 @@ jobs:
           Mark-Step "prep:packed-dll-copied"
 
           function Assert-MonotonicRawOffsets([string]$path) {
-            $bytes = [System.IO.File]::ReadAllBytes($path)
+            $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $path).Path)
             $elfanew = [BitConverter]::ToUInt32($bytes, 0x3C)
             $numSec = [BitConverter]::ToUInt16($bytes, $elfanew + 4 + 2)
             $optSize = [BitConverter]::ToUInt16($bytes, $elfanew + 4 + 16)
