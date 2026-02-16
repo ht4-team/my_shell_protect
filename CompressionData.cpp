@@ -337,31 +337,50 @@ BOOL CompressionData::CompressSectionData()
 		free(SaveCompressData);
 		SaveCompressData = nullptr;
 	}
-	// 拼接标准PE头 + 压缩数据的区段 + 自己的区段
-	char* ComressNewBase = (char*)malloc(Size + m_maskAddress->SizeOfRawData);
+	// File layout: [headers] [.VMP shell] [.UPX compressed data]
+	// Section table order is .VMP then .UPX (ascending VA).  Raw offsets must
+	// also be monotonically increasing; the Windows 10+ PE loader rejects images
+	// where PointerToRawData decreases between consecutive non-BSS sections
+	// (STATUS_INVALID_IMAGE_FORMAT / 0xC000007B).
+	const DWORD vmpRawSize = m_maskAddress->SizeOfRawData;
+	const DWORD vmpAligned = (vmpRawSize + fileAlignment - 1) & ~(fileAlignment - 1);
+	const DWORD vmpFileOff = pStandardHeadersize;
+	const DWORD upxFileOff = vmpFileOff + vmpAligned;
+	const DWORD totalOutputSize = upxFileOff + ModifySize;
+
+	char* ComressNewBase = (char*)malloc(totalOutputSize);
 	if (!ComressNewBase)
 		return false;
-	// 拼接标准PE
-	memset(ComressNewBase, 0, (Size + m_maskAddress->SizeOfRawData));
+	memset(ComressNewBase, 0, totalOutputSize);
 	memcpy(ComressNewBase, m_lpBase, pStandardHeadersize);
 
-	
 #ifdef _WIN64
-	// 拼接压缩后的全部区段(第一个头信息)
-	memcpy(&ComressNewBase[pStandardHeadersize], (PVOID64)(compSectionAddress->PointerToRawData + (DWORD64)m_lpBase), ComressTotalSize);
-	memcpy(&ComressNewBase[Size], (PVOID64)(m_maskAddress->PointerToRawData + (DWORD64)m_lpBase), m_maskAddress->SizeOfRawData);
+	// .VMP shell code first (lower raw offset, matching section table order)
+	memcpy(&ComressNewBase[vmpFileOff], (PVOID64)(m_maskAddress->PointerToRawData + (DWORD64)m_lpBase), vmpRawSize);
+	// .UPX compressed data second (higher raw offset)
+	memcpy(&ComressNewBase[upxFileOff], (PVOID64)(compSectionAddress->PointerToRawData + (DWORD64)m_lpBase), ComressTotalSize);
 #else
-	memcpy(&ComressNewBase[pStandardHeadersize], (void*)(compSectionAddress->PointerToRawData + (DWORD)m_lpBase), ComressTotalSize);
-	// 拼接加壳区段数据
-	memcpy(&ComressNewBase[Size], (void *)(m_maskAddress->PointerToRawData + (DWORD)m_lpBase), m_maskAddress->SizeOfRawData);
-#endif // _WIN64
+	memcpy(&ComressNewBase[vmpFileOff], (void*)(m_maskAddress->PointerToRawData + (DWORD)m_lpBase), vmpRawSize);
+	memcpy(&ComressNewBase[upxFileOff], (void*)(compSectionAddress->PointerToRawData + (DWORD)m_lpBase), ComressTotalSize);
+#endif
 
-	// 清空数据目录表(收尾工作)
-	CleanDirectData(ComressNewBase, ComressTotalSize, Size);
+	// Fix section headers: zero original sections, set .VMP RawPtr = vmpFileOff
+	CleanDirectData(ComressNewBase, ComressTotalSize, vmpFileOff);
+
+	// Patch .UPX PointerToRawData in the output (CleanDirectData only touches 0..N-2).
+	{
+#ifdef _WIN64
+		PIMAGE_NT_HEADERS pOutNt = (PIMAGE_NT_HEADERS)(((PIMAGE_DOS_HEADER)ComressNewBase)->e_lfanew + (DWORD64)ComressNewBase);
+#else
+		PIMAGE_NT_HEADERS pOutNt = (PIMAGE_NT_HEADERS)(((PIMAGE_DOS_HEADER)ComressNewBase)->e_lfanew + (DWORD)ComressNewBase);
+#endif
+		PIMAGE_SECTION_HEADER pLastSec = &IMAGE_FIRST_SECTION(pOutNt)[pOutNt->FileHeader.NumberOfSections - 1];
+		pLastSec->PointerToRawData = upxFileOff;
+	}
 
 	// Recalculate final file size from section headers to avoid truncation.
 	// Some layouts require extra padding between sections due FileAlignment.
-	DWORD finalWriteSize = Size + m_maskAddress->SizeOfRawData;
+	DWORD finalWriteSize = totalOutputSize;
 	{
 #ifdef _WIN64
 		PIMAGE_NT_HEADERS pFinalNt = (PIMAGE_NT_HEADERS)(((PIMAGE_DOS_HEADER)ComressNewBase)->e_lfanew + (DWORD64)ComressNewBase);
@@ -419,8 +438,8 @@ BOOL CompressionData::CompressSectionData()
 			nRet, dwWrite, finalWriteSize);
 		return false;
 	}
-	fprintf(stdout, "pack: compressed=%u aligned_size=0x%X vmp_raw=0x%X file=0x%X\n",
-		ComressTotalSize, ModifySize, m_maskAddress->SizeOfRawData, finalWriteSize);
+	fprintf(stdout, "pack: compressed=%u vmp_off=0x%X upx_off=0x%X file=0x%X\n",
+		ComressTotalSize, vmpFileOff, upxFileOff, finalWriteSize);
 	return TRUE;
 }
 

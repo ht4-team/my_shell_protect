@@ -150,6 +150,29 @@ jobs:
           Copy-Item test\samples\x86\CombatShell.dll dist\packed\x86\CombatShell.dll -Force
           Mark-Step "prep:packed-dll-copied"
 
+          function Assert-MonotonicRawOffsets([string]$path) {
+            $bytes = [System.IO.File]::ReadAllBytes($path)
+            $elfanew = [BitConverter]::ToUInt32($bytes, 0x3C)
+            $numSec = [BitConverter]::ToUInt16($bytes, $elfanew + 4 + 2)
+            $optSize = [BitConverter]::ToUInt16($bytes, $elfanew + 4 + 16)
+            $secOff = $elfanew + 4 + 20 + $optSize
+            $prevRaw = 0
+            for ($i = 0; $i -lt $numSec; $i++) {
+              $so = $secOff + $i * 40
+              $name = [System.Text.Encoding]::ASCII.GetString($bytes, $so, 8).TrimEnd([char]0)
+              $rawSize = [BitConverter]::ToUInt32($bytes, $so + 16)
+              $rawPtr  = [BitConverter]::ToUInt32($bytes, $so + 20)
+              if ($rawSize -gt 0) {
+                if ($rawPtr -lt $prevRaw) {
+                  throw "PE section [$name] RawPtr=0x$($rawPtr.ToString('X')) < prev=0x$($prevRaw.ToString('X')): non-monotonic raw offsets will cause 0xC000007B on Win10+"
+                }
+                $prevRaw = $rawPtr
+              }
+              Write-Host "  [$i] $($name.PadRight(8)) VA=0x$([BitConverter]::ToUInt32($bytes,$so+12).ToString('X8')) Raw=0x$($rawPtr.ToString('X8')) RawSz=0x$($rawSize.ToString('X8'))"
+            }
+            Write-Host "PE section raw offsets: monotonic OK"
+          }
+
           Push-Location test\samples\x64
           Mark-Step "x64:inspect-calc:start"
           .\CombatShellCli.exe inspect .\calc.exe
@@ -158,6 +181,7 @@ jobs:
           Mark-Step "x64:calc-pack:start"
           .\CombatShellCli.exe pack .\calc.exe
           .\CombatShellCli.exe inspect .\calc.exe
+          Assert-MonotonicRawOffsets ".\calc.exe"
           Copy-Item .\calc.exe ..\..\..\dist\packed\x64\calc_x64_packed.exe -Force
           Mark-Step "x64:calc-packed-run:start"
           Assert-LaunchOrCollect ".\calc.exe" "calc_x64_packed"
@@ -193,6 +217,7 @@ jobs:
           Mark-Step "x64:mini-pack:start"
           .\CombatShellCli.exe pack .\mini_target.exe
           .\CombatShellCli.exe inspect .\mini_target.exe
+          Assert-MonotonicRawOffsets ".\mini_target.exe"
           Copy-Item .\mini_target.exe ..\..\..\dist\packed\x64\mini_target_x64_packed.exe -Force
           Mark-Step "x64:mini-unpack:start"
           .\CombatShellCli.exe unpack .\mini_target.exe
@@ -205,6 +230,7 @@ jobs:
           .\CombatShellCli.exe inspect .\mini_target.exe
           .\CombatShellCli.exe pack .\mini_target.exe
           .\CombatShellCli.exe inspect .\mini_target.exe
+          Assert-MonotonicRawOffsets ".\mini_target.exe"
           Copy-Item .\mini_target.exe ..\..\..\dist\packed\x86\mini_target_x86_packed.exe -Force
           Mark-Step "x86:mini-unpack:start"
           .\CombatShellCli.exe unpack .\mini_target.exe
