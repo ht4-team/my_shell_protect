@@ -305,6 +305,16 @@ BOOL CompressionData::CompressSectionData()
 
 	// 重载文件 - 修改新区段的信息数据 文件偏移 0x400  大小 压缩后数据对齐大小
 	ReFileInit();
+
+	// Re-fetch .VMP section address from the new m_lpBase.
+	// The previous m_maskAddress pointed into the old buffer freed by AddCompreDataSection/ReFileInit.
+	m_maskAddress = SinglePuPEInfo::instance()->puGetSectionAddress((char *)m_lpBase, (BYTE *)NEWSECITONNAME);
+	if (!m_maskAddress) {
+		fprintf(stderr, "pack: .VMP section not found after reload\n");
+		free(SaveCompressData);
+		return false;
+	}
+
 	BYTE byteName[] = ".UPX";
 	SinglePuPEInfo::instance()->puSetFileoffsetAndFileSize(m_lpBase, pStandardHeadersize, ModifySize, byteName);
 	BYTE byteNmase[] = ".UPX";
@@ -402,8 +412,13 @@ BOOL CompressionData::CompressSectionData()
 		free(ComressNewBase);
 		ComressNewBase = nullptr;
 	}
-	if (!nRet)
-		AfxMessageBox(L"CompressWriteFile failuer");
+	if (!nRet || dwWrite != finalWriteSize) {
+		fprintf(stderr, "pack: CompressWriteFile failed (ret=%d wrote=0x%X expected=0x%X)\n",
+			nRet, dwWrite, finalWriteSize);
+		return false;
+	}
+	fprintf(stdout, "pack: compressed=%u aligned_size=0x%X vmp_raw=0x%X file=0x%X\n",
+		ComressTotalSize, ModifySize, m_maskAddress->SizeOfRawData, finalWriteSize);
 	return TRUE;
 }
 

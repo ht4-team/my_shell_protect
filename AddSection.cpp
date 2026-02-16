@@ -144,7 +144,11 @@ BOOL AddSection::ModifySizeofImage()
 
 BOOL AddSection::AddNewSectionByteData(const DWORD & size)
 {
-	const int newFileSize = FileSize + size;
+	// Use the file-aligned section size so the physical file matches what the
+	// section header claims.  Prevents buffer over-reads when the file is
+	// reloaded and code trusts SizeOfRawData to determine readable extent.
+	const DWORD alignedSize = NewpSection ? NewpSection->SizeOfRawData : size;
+	const DWORD newFileSize = FileSize + alignedSize;
 	m_newlpBase = (char *)malloc(newFileSize);
 	if (!m_newlpBase || (nullptr == m_newlpBase))
 		return false;
@@ -157,7 +161,7 @@ BOOL AddSection::AddNewSectionByteData(const DWORD & size)
 		return false;
 
 	DWORD dWriteSize = 0; OVERLAPPED OverLapped = { 0 };
-	int nRetCode = WriteFile(FileHandle, m_newlpBase, (FileSize + size), &dWriteSize, &OverLapped);
+	int nRetCode = WriteFile(FileHandle, m_newlpBase, newFileSize, &dWriteSize, &OverLapped);
 	if (m_newlpBase) {
 		free(m_newlpBase);
 		m_newlpBase = nullptr;

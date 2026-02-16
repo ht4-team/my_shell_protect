@@ -238,8 +238,13 @@ BOOL studData::CopyStud()
 {
 	PIMAGE_SECTION_HEADER studSection = SinglePuPEInfo::instance()->puGetSectionAddress((char *)m_studBase, (BYTE *)".text");
 	PIMAGE_SECTION_HEADER SurceBase = SinglePuPEInfo::instance()->puGetSectionAddress((char *)m_lpBase, (BYTE *)NEWSECITONNAME);
-	if (!studSection || (!SurceBase))
+	if (!studSection || (!SurceBase)) {
+		fprintf(stderr, "pack: CopyStud section lookup failed (stud=%p vmp=%p)\n", studSection, SurceBase);
 		return false;
+	}
+	fprintf(stdout, "pack: CopyStud vmp_raw=0x%X shell_vsize=0x%X buf_size=0x%X\n",
+		SurceBase->PointerToRawData, studSection->Misc.VirtualSize,
+		SinglePuPEInfo::instance()->puFileSize());
 #ifdef _WIN64
 	memcpy(
 		(void *)(SurceBase->PointerToRawData + (DWORD64)m_lpBase),
@@ -285,8 +290,13 @@ BOOL studData::CopyStud()
 #endif
 
 	int nRet = WriteFile(SinglePuPEInfo::instance()->puFileHandle(), SinglePuPEInfo::instance()->puGetImageBase(), SinglePuPEInfo::instance()->puFileSize(), &dwRiteFile, &overLapped);
-	if (!nRet)
+	if (!nRet || dwRiteFile != SinglePuPEInfo::instance()->puFileSize()) {
+		fprintf(stderr, "pack: CopyStud WriteFile failed (ret=%d wrote=0x%X expected=0x%X)\n",
+			nRet, dwRiteFile, SinglePuPEInfo::instance()->puFileSize());
 		return FALSE;
+	}
+	fprintf(stdout, "pack: CopyStud wrote 0x%X bytes, oep=0x%X\n",
+		dwRiteFile, pNt->OptionalHeader.AddressOfEntryPoint);
 	return TRUE;
 }
 
