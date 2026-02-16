@@ -425,7 +425,7 @@ const bool CmdKillProcess(const int Pid)
 	}
 }
 const bool CodeTool::KillProcess()
-{// ±éÀúÏà¹Ø½ø³Ì
+{// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ø½ï¿½ï¿½ï¿½
 	try
 	{
 		const HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, NULL);
@@ -440,7 +440,7 @@ const bool CodeTool::KillProcess()
 			{
 				if (0 == lstrcmpW(pRocNameiter.c_str(), pi.szExeFile))
 				{
-					// ¶àÕË»§ÏÂÖ»ÓÐµ±Ç°ÕË»§µÄPID²Å»áÓÐÈ¨ÏÞOpen
+					// ï¿½ï¿½ï¿½Ë»ï¿½ï¿½ï¿½Ö»ï¿½Ðµï¿½Ç°ï¿½Ë»ï¿½ï¿½ï¿½PIDï¿½Å»ï¿½ï¿½ï¿½È¨ï¿½ï¿½Open
 					const HANDLE hprocess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pi.th32ProcessID);
 					if (hprocess)
 					{
@@ -463,7 +463,7 @@ const bool CodeTool::KillProcess()
 }
 
 const bool CodeTool::KillProcess(const std::wstring& strKillName)
-{// Ö¸¶¨½ø³ÌÃû
+{// Ö¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 	const HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, NULL);
 	if (INVALID_HANDLE_VALUE == hSnapshot)
 		return false;
@@ -521,7 +521,7 @@ const bool CodeTool::CreateImageDirectory(std::string strDirectoryPath)
 	if (strDirectoryPath.empty()) {
 		CGetCurrentDirectory(strDirectoryPath);
 		if (strDirectoryPath.empty()) {
-			OutputDebugString(L"´´½¨Í¼Æ¬»º´æÄ¿Â¼Ê§°Ü");
+			OutputDebugString(L"ï¿½ï¿½ï¿½ï¿½Í¼Æ¬ï¿½ï¿½ï¿½ï¿½Ä¿Â¼Ê§ï¿½ï¿½");
 			return false;
 		}
 		strDirectoryPath.append("ImageCache");
@@ -586,7 +586,7 @@ const bool CodeTool::GetProcessActivePid(DWORD& dwPid, const std::string& strPro
 		{
 			if (0 == lstrcmpW(wstrProcName.c_str(), pi.szExeFile))
 			{
-				// ¶àÕË»§ÏÂÖ»ÓÐµ±Ç°ÕË»§µÄPID²Å»áÓÐÈ¨ÏÞOpen
+				// ï¿½ï¿½ï¿½Ë»ï¿½ï¿½ï¿½Ö»ï¿½Ðµï¿½Ç°ï¿½Ë»ï¿½ï¿½ï¿½PIDï¿½Å»ï¿½ï¿½ï¿½È¨ï¿½ï¿½Open
 				const HANDLE hprocess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pi.th32ProcessID);
 				if (hprocess)
 				{
@@ -643,7 +643,7 @@ const bool CodeTool::IsProcessActive(const std::string& strProcessName)
 
 const bool CodeTool::CGetCurrentDirectory(std::string & strDirpath)
 {
-	// »ñÈ¡µ±Ç°Ä¿Â¼Â·¾¶
+	// ï¿½ï¿½È¡ï¿½ï¿½Ç°Ä¿Â¼Â·ï¿½ï¿½
 	char szModule[1024] = { 0, };
 	GetModuleFileNameA(NULL, szModule, sizeof(szModule) / sizeof(char));
 	strDirpath = szModule;
@@ -686,7 +686,7 @@ const size_t ConvertHexStrToInt(const char* hex_str, const size_t length)
 		{
 			int asc = (int)hex_str[i];
 			const size_t r1 = (asc & 0x40) ? (asc & 0x0F) + 0x9 : (asc & 0x0F);
-			sum += (r1 * pow(16, length - i - 1));
+			sum += (size_t)(r1 * pow(16, (double)(length - i - 1)));
 		}
 		return sum;
 	}
@@ -704,7 +704,7 @@ void convert_ASCII(const std::string& hex,std::string& strBuf) {
 			//taking two characters from hex string
 			std::string part = hex.substr(i, 2);
 			//changing it into base 16
-			char ch = std::stoul(part, nullptr, 16);
+			char ch = (char)std::stoul(part, nullptr, 16);
 			//putting it into the ASCII string
 			strBuf += ch;
 		}

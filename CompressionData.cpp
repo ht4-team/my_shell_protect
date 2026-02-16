@@ -84,7 +84,7 @@ void CompressionData::VmcodeEntry(char* TargetCode, _Out_ int &CodeLength)
 		线性反汇编来求大小
 	*/
 	// write: 1. offset -- 汇编指令
-	g_Vm->VmAddroffset = Offset;
+	g_Vm->VmAddroffset = (unsigned int)Offset;
 	// fwrite(&Offset, sizeof(DWORD64), 1, fpVmFile);
 	vm_len = 82;		// 固定的需要人工去看反汇编多少行,ida中看一下,不智能
 	g_Vm->Vmencodeasmlen = vm_len;
@@ -292,12 +292,10 @@ BOOL CompressionData::CompressSectionData()
 	if (ComressTotalSize % fileAlignment == 0)
 	{
 		Size = pStandardHeadersize + ((ComressTotalSize / fileAlignment) * fileAlignment);
-		int a = 10;
 	}
 	else
 	{
 		Size = pStandardHeadersize + (((ComressTotalSize / fileAlignment) + 1) * fileAlignment);
-		int a = 10;
 	}
 
 

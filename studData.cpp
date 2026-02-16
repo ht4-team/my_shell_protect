@@ -75,7 +75,11 @@ BOOL studData::InitStuData(const DWORD dwOldOEP) {
 		}
 		fwrite(&m_OldOEP, sizeof(DWORD), 1, fpFile);
 		fclose(fpFile);
+#ifdef _WIN64
 		g_stu->s_dwOepBase = m_OldOEP;
+#else
+		g_stu->s_dwOepBase = (DWORD)m_OldOEP;
+#endif
 #ifdef _WIN64
 		g_stu->s_OriginalImageBase = pNt->OptionalHeader.ImageBase;
 #else

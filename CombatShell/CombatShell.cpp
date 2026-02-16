@@ -507,9 +507,9 @@ void UnCompression()
 	{
 		MyVirtualProtect(pDataDirectory, 0x8, PAGE_READWRITE, &Att_old);
 		if (0 != g_stud.s_DataDirectory[i][0])
-			pDataDirectory->VirtualAddress = g_stud.s_DataDirectory[i][0];
+			pDataDirectory->VirtualAddress = (DWORD)g_stud.s_DataDirectory[i][0];
 		if (0 != g_stud.s_DataDirectory[i][1])
-			pDataDirectory->Size = g_stud.s_DataDirectory[i][1];
+			pDataDirectory->Size = (DWORD)g_stud.s_DataDirectory[i][1];
 		MyVirtualProtect(pDataDirectory, 0x8, Att_old, &Att_old);
 		++pDataDirectory;
 	}
@@ -924,12 +924,12 @@ void RepairTheIAT()
 					continue;
 				}
 				PIMAGE_IMPORT_BY_NAME pName = (PIMAGE_IMPORT_BY_NAME)(thunkValue + dwMoudle);
-				FunAddress = SafeGetProcAddressForIat(hModuledll, pName->Name);
+				FunAddress = (DWORD)SafeGetProcAddressForIat(hModuledll, pName->Name);
 			}
 			else
 			{
 				DWORD dwFunOrdinal = IMAGE_ORDINAL32((DWORD)thunkValue);
-				FunAddress = SafeGetProcAddressForIat(hModuledll, (char*)(ULONG_PTR)dwFunOrdinal);
+				FunAddress = (DWORD)SafeGetProcAddressForIat(hModuledll, (char*)(ULONG_PTR)dwFunOrdinal);
 			}
 #endif
 

@@ -13,7 +13,7 @@ extern DWORD64 g_dataoffset;
 
 Capstone::Capstone()
 {
-	srand(time(0));
+	srand((unsigned int)time(0));
 }
 
 Capstone::~Capstone()
@@ -60,7 +60,7 @@ void Capstone::ShowAssembly(const void* pAddr, int nLen)
 
 	for (int i = 0; i < nLen; ++i)
 	{
-		printf("%08X\t", ins[i].address);
+		printf("%08llX\t", (unsigned long long)ins[i].address);
 		for (uint16_t j = 0; j < 16; ++j)
 		{
 			if (j < ins[i].size)
@@ -74,7 +74,7 @@ void Capstone::ShowAssembly(const void* pAddr, int nLen)
 	}
 	printf("\n");
 	// 释放动态分配的空间
-	delete[] pOpCode;
+	free(pOpCode);
 	cs_free(ins, count);
 }
 
@@ -141,7 +141,7 @@ void Capstone::AnalyOpcodeHlper(const void* pAddr, int nLen)
 
 	for (int i = 0; i < nLen; ++i)
 	{
-		g_Vm->data->startoffset = ins[i].address - (uint64_t)pAddr;
+		g_Vm->data->startoffset = (unsigned int)(ins[i].address - (uint64_t)pAddr);
 		// write : 2. 记录每次 异或密码 | byte大小 | 是否成功
 		randnumber = rand() % 0xff;
 		g_Vm->data->xorKey = randnumber;
@@ -160,16 +160,17 @@ void Capstone::AnalyOpcodeHlper(const void* pAddr, int nLen)
 			// vmflag = 0;
 			// fwrite(&vmflag, sizeof(int), 1, fpVmFile);
 		}
-		strcpy(g_Vm->data->mnemonic, ins[i].mnemonic);
+		strncpy(g_Vm->data->mnemonic, ins[i].mnemonic, sizeof(g_Vm->data->mnemonic) - 1);
+		g_Vm->data->mnemonic[sizeof(g_Vm->data->mnemonic) - 1] = '\0';
 		// fwrite(ins[i].mnemonic, CS_MNEMONIC_SIZE, 1, fpVmFile);
 		// fflush(fpVmFile);
 		g_Vm->data++;
 	}
 	// 恢复指针,否则保存到文件的则是循环后的指针
-	g_Vm->Hlperdataoffset = g_dataoffset;
+	g_Vm->Hlperdataoffset = (unsigned int)g_dataoffset;
 	// fclose(fpVmFile);
 	printf("\n");
 	// 释放动态分配的空间
-	delete[] pOpCode;
+	free(pOpCode);
 	cs_free(ins, count);
 }
