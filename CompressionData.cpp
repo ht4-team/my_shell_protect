@@ -171,11 +171,12 @@ BOOL CompressionData::CompressSectionData()
 #endif
 	if (!pNt)
 		return false;
-#ifndef _WIN64
-	// x86 shell code still contains absolute references in .VMP.
-	// Keep packed images at preferred base to avoid missing reloc coverage for injected section.
-	pNt->OptionalHeader.DllCharacteristics &= ~IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE;
-#endif
+	// Shell code in .VMP contains absolute references pre-patched to the preferred
+	// ImageBase.  The packed output has no relocation table (data directories zeroed),
+	// so the loader cannot fix up addresses if ASLR moves the base.  Disable ASLR to
+	// ensure the image loads at the preferred base where the pre-patched VAs are valid.
+	pNt->OptionalHeader.DllCharacteristics &= ~(IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE
+		| IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA);
 
 	DWORD dSectionCount = pNt->FileHeader.NumberOfSections;
 	PIMAGE_SECTION_HEADER psection = (PIMAGE_SECTION_HEADER)m_SectionHeadre;
@@ -449,11 +450,10 @@ BOOL CompressionData::CleanDirectData(const char* NewAddress, const DWORD & Comp
 #endif
 	if (!pNt)
 		return false;
-#ifndef _WIN64
 	// Must be applied on the final output image header.
 	// Earlier edits can be overwritten by ReFileInit/rebuild stages.
-	pNt->OptionalHeader.DllCharacteristics &= ~IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE;
-#endif
+	pNt->OptionalHeader.DllCharacteristics &= ~(IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE
+		| IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA);
 
 	PIMAGE_DATA_DIRECTORY pDirectory = (PIMAGE_DATA_DIRECTORY)pNt->OptionalHeader.DataDirectory;
 	if (!pDirectory)
