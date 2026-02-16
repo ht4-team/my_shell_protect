@@ -349,6 +349,41 @@ BOOL CompressionData::CompressSectionData()
 	// 清空数据目录表(收尾工作)
 	CleanDirectData(ComressNewBase, ComressTotalSize, Size);
 
+	// Recalculate final file size from section headers to avoid truncation.
+	// Some layouts require extra padding between sections due FileAlignment.
+	DWORD finalWriteSize = Size + m_maskAddress->SizeOfRawData;
+	{
+#ifdef _WIN64
+		PIMAGE_NT_HEADERS pFinalNt = (PIMAGE_NT_HEADERS)(((PIMAGE_DOS_HEADER)ComressNewBase)->e_lfanew + (DWORD64)ComressNewBase);
+#else
+		PIMAGE_NT_HEADERS pFinalNt = (PIMAGE_NT_HEADERS)(((PIMAGE_DOS_HEADER)ComressNewBase)->e_lfanew + (DWORD)ComressNewBase);
+#endif
+		if (pFinalNt) {
+			PIMAGE_SECTION_HEADER pFinalSec = IMAGE_FIRST_SECTION(pFinalNt);
+			DWORD maxEnd = pFinalNt->OptionalHeader.SizeOfHeaders;
+			for (DWORD i = 0; i < pFinalNt->FileHeader.NumberOfSections; ++i) {
+				DWORD secEnd = pFinalSec->PointerToRawData + pFinalSec->SizeOfRawData;
+				if (secEnd > maxEnd) {
+					maxEnd = secEnd;
+				}
+				++pFinalSec;
+			}
+			if (maxEnd > finalWriteSize) {
+				char* expanded = (char*)malloc(maxEnd);
+				if (expanded) {
+					memset(expanded, 0, maxEnd);
+					memcpy(expanded, ComressNewBase, finalWriteSize);
+					free(ComressNewBase);
+					ComressNewBase = expanded;
+					finalWriteSize = maxEnd;
+				}
+			}
+			else {
+				finalWriteSize = maxEnd;
+			}
+		}
+	}
+
 	// Create File
 	std::wstring wsTagetDirectory = L"";
 	{
@@ -363,7 +398,7 @@ BOOL CompressionData::CompressSectionData()
 	
 	// Write 写入压缩
 	DWORD dwWrite = 0;
-	int nRet = WriteFile(HandComprele, ComressNewBase, (Size + m_maskAddress->SizeOfRawData), &dwWrite, NULL);
+	int nRet = WriteFile(HandComprele, ComressNewBase, finalWriteSize, &dwWrite, NULL);
 	CloseHandle(HandComprele);
 	if (ComressNewBase) {
 		free(ComressNewBase);
