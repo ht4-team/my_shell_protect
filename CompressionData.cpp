@@ -176,7 +176,8 @@ BOOL CompressionData::CompressSectionData()
 	// so the loader cannot fix up addresses if ASLR moves the base.  Disable ASLR to
 	// ensure the image loads at the preferred base where the pre-patched VAs are valid.
 	pNt->OptionalHeader.DllCharacteristics &= ~(IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE
-		| IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA);
+		| IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA
+		| IMAGE_DLLCHARACTERISTICS_GUARD_CF);
 
 	DWORD dSectionCount = pNt->FileHeader.NumberOfSections;
 	PIMAGE_SECTION_HEADER psection = (PIMAGE_SECTION_HEADER)m_SectionHeadre;
@@ -453,7 +454,8 @@ BOOL CompressionData::CleanDirectData(const char* NewAddress, const DWORD & Comp
 	// Must be applied on the final output image header.
 	// Earlier edits can be overwritten by ReFileInit/rebuild stages.
 	pNt->OptionalHeader.DllCharacteristics &= ~(IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE
-		| IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA);
+		| IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA
+		| IMAGE_DLLCHARACTERISTICS_GUARD_CF);
 
 	PIMAGE_DATA_DIRECTORY pDirectory = (PIMAGE_DATA_DIRECTORY)pNt->OptionalHeader.DataDirectory;
 	if (!pDirectory)
