@@ -612,6 +612,11 @@ jobs:
             $sizeImage = [BitConverter]::ToUInt32($b, $opt + 56)
             $sizeHeaders = [BitConverter]::ToUInt32($b, $opt + 60)
             $dllChars = [BitConverter]::ToUInt16($b, $opt + 70)
+            $subsystem = [BitConverter]::ToUInt16($b, $opt + 68)
+            $majorOs = [BitConverter]::ToUInt16($b, $opt + 40)
+            $minorOs = [BitConverter]::ToUInt16($b, $opt + 42)
+            $majorSub = [BitConverter]::ToUInt16($b, $opt + 48)
+            $minorSub = [BitConverter]::ToUInt16($b, $opt + 50)
             @(
               "file=$path"
               "machine=0x{0:X}" -f $machine
@@ -622,6 +627,9 @@ jobs:
               "file_alignment=0x{0:X}" -f $fileAlign
               "size_of_image=0x{0:X}" -f $sizeImage
               "size_of_headers=0x{0:X}" -f $sizeHeaders
+              "subsystem=0x{0:X}" -f $subsystem
+              "os_version={0}.{1}" -f $majorOs, $minorOs
+              "subsystem_version={0}.{1}" -f $majorSub, $minorSub
               "dll_characteristics=0x{0:X}" -f $dllChars
             ) | Out-File -FilePath "dist\diagnostics\${label}_pe_header.txt" -Encoding utf8
           }
@@ -635,6 +643,77 @@ jobs:
         with:
           name: packed-crash-diagnostics
           path: dist\diagnostics\*
+          if-no-files-found: ignore
+
+  verify-calc-bundle-matrix:
+    name: Verify calc bundle on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    needs: test-example-pack
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2019, windows-2022]
+
+    steps:
+      - name: Download packed calc runnable bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: packed-calc-x64-bundle
+          path: verify\bundle
+
+      - name: Verify hash and execute calc bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path verify\report | Out-Null
+          Push-Location verify\bundle
+          if (Test-Path .\SHA256SUMS.txt) {
+            $lines = Get-Content .\SHA256SUMS.txt
+            foreach ($line in $lines) {
+              if ($line -match '^([0-9A-Fa-f]{64}) \*(.+)$') {
+                $expect = $matches[1].ToUpperInvariant()
+                $file = $matches[2]
+                if (-not (Test-Path $file)) { throw "missing file in bundle: $file" }
+                $actual = (Get-FileHash -Path $file -Algorithm SHA256).Hash.ToUpperInvariant()
+                if ($actual -ne $expect) {
+                  throw "sha256 mismatch: $file expected=$expect actual=$actual"
+                }
+              }
+            }
+          }
+          $start = Get-Date
+          $ok = $false
+          try {
+            $proc = Start-Process -FilePath .\calc_x64_packed.exe -PassThru -ErrorAction Stop
+            Start-Sleep -Seconds 3
+            if ($proc.HasExited) {
+              if ($proc.ExitCode -eq 0) { $ok = $true }
+            } else {
+              Stop-Process -Id $proc.Id -Force
+              $ok = $true
+            }
+          } catch {
+            "launch_error=$($_.Exception.Message)" | Out-File -FilePath ..\report\launch_error.txt -Encoding utf8
+          }
+          Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion, OsBuildNumber, OsArchitecture |
+            Format-List | Out-File -FilePath ..\report\system.txt -Encoding utf8
+          if (-not $ok) {
+            Get-WinEvent -FilterHashtable @{ LogName = "Application"; StartTime = $start.AddSeconds(-5) } -ErrorAction SilentlyContinue |
+              Where-Object { $_.ProviderName -in @("Application Error", "Windows Error Reporting") } |
+              Select-Object TimeCreated, ProviderName, Id, Message |
+              Format-List |
+              Out-File -FilePath ..\report\events.txt -Encoding utf8
+            throw "bundle launch failed on $env:RUNNER_OS"
+          }
+          "launch_result=success" | Out-File -FilePath ..\report\result.txt -Encoding utf8
+          Pop-Location
+
+      - name: Upload matrix verify report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packed-calc-verify-${{ matrix.os }}
+          path: verify\report\*
           if-no-files-found: ignore
 
   forensic-x86:
