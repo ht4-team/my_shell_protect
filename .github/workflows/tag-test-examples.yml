@@ -263,23 +263,48 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist\diagnostics | Out-Null
           New-Item -ItemType Directory -Force -Path dist\packed\calc_isolated | Out-Null
 
+          function Resolve-DumpbinPath() {
+            $cmd = Get-Command dumpbin.exe -ErrorAction SilentlyContinue
+            if ($cmd) { return $cmd.Source }
+            $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+            if (Test-Path $vswhere) {
+              $install = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -property installationPath
+              if ($install) {
+                $candidates = Get-ChildItem -Path (Join-Path $install "VC\Tools\MSVC") -Directory -ErrorAction SilentlyContinue |
+                  Sort-Object Name -Descending
+                foreach ($c in $candidates) {
+                  $path = Join-Path $c.FullName "bin\Hostx64\x64\dumpbin.exe"
+                  if (Test-Path $path) { return $path }
+                }
+              }
+            }
+            return $null
+          }
+
           function Export-BinaryProbe([string]$path, [string]$label) {
             if (-not (Test-Path $path)) { return }
             $out = "dist\diagnostics\${label}_probe.txt"
             $resolved = (Resolve-Path $path).Path
             $item = Get-Item $resolved
+            $dumpbin = Resolve-DumpbinPath
             @(
               "file=$resolved"
               "size_bytes=$($item.Length)"
               "sha256=$((Get-FileHash -Path $resolved -Algorithm SHA256).Hash)"
+              "dumpbin=$dumpbin"
             ) | Out-File -FilePath $out -Encoding utf8
+            if (-not $dumpbin) {
+              "dumpbin not found on runner" | Out-File -FilePath "dist\diagnostics\${label}_dumpbin_headers.txt" -Encoding utf8
+              "dumpbin not found on runner" | Out-File -FilePath "dist\diagnostics\${label}_dumpbin_dependents.txt" -Encoding utf8
+              return
+            }
             try {
-              & dumpbin /headers $resolved | Out-File -FilePath "dist\diagnostics\${label}_dumpbin_headers.txt" -Encoding utf8
+              & $dumpbin /headers $resolved | Out-File -FilePath "dist\diagnostics\${label}_dumpbin_headers.txt" -Encoding utf8
             } catch {
               "dumpbin /headers failed: $($_.Exception.Message)" | Out-File -FilePath "dist\diagnostics\${label}_dumpbin_headers.txt" -Encoding utf8
             }
             try {
-              & dumpbin /dependents $resolved | Out-File -FilePath "dist\diagnostics\${label}_dumpbin_dependents.txt" -Encoding utf8
+              & $dumpbin /dependents $resolved | Out-File -FilePath "dist\diagnostics\${label}_dumpbin_dependents.txt" -Encoding utf8
             } catch {
               "dumpbin /dependents failed: $($_.Exception.Message)" | Out-File -FilePath "dist\diagnostics\${label}_dumpbin_dependents.txt" -Encoding utf8
             }
