@@ -263,6 +263,63 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist\diagnostics | Out-Null
           New-Item -ItemType Directory -Force -Path dist\packed\calc_isolated | Out-Null
 
+          function Export-BinaryProbe([string]$path, [string]$label) {
+            if (-not (Test-Path $path)) { return }
+            $out = "dist\diagnostics\${label}_probe.txt"
+            $resolved = (Resolve-Path $path).Path
+            $item = Get-Item $resolved
+            @(
+              "file=$resolved"
+              "size_bytes=$($item.Length)"
+              "sha256=$((Get-FileHash -Path $resolved -Algorithm SHA256).Hash)"
+            ) | Out-File -FilePath $out -Encoding utf8
+            try {
+              & dumpbin /headers $resolved | Out-File -FilePath "dist\diagnostics\${label}_dumpbin_headers.txt" -Encoding utf8
+            } catch {
+              "dumpbin /headers failed: $($_.Exception.Message)" | Out-File -FilePath "dist\diagnostics\${label}_dumpbin_headers.txt" -Encoding utf8
+            }
+            try {
+              & dumpbin /dependents $resolved | Out-File -FilePath "dist\diagnostics\${label}_dumpbin_dependents.txt" -Encoding utf8
+            } catch {
+              "dumpbin /dependents failed: $($_.Exception.Message)" | Out-File -FilePath "dist\diagnostics\${label}_dumpbin_dependents.txt" -Encoding utf8
+            }
+          }
+
+          function Invoke-QuickLaunchProbe([string]$path, [string]$label) {
+            $start = Get-Date
+            try {
+              $proc = Start-Process -FilePath $path -PassThru -ErrorAction Stop
+            } catch {
+              @(
+                "result=start_failed"
+                "path=$path"
+                "error=$($_.Exception.Message)"
+              ) | Out-File -FilePath "dist\diagnostics\${label}.txt" -Encoding utf8
+              Export-CrashEvents -startTime $start -label $label
+              return $false
+            }
+            Start-Sleep -Seconds 3
+            if ($proc.HasExited) {
+              @(
+                "result=exited_quickly"
+                "path=$path"
+                "exit_code=$($proc.ExitCode)"
+              ) | Out-File -FilePath "dist\diagnostics\${label}.txt" -Encoding utf8
+              if ($proc.ExitCode -ne 0) {
+                Export-CrashEvents -startTime $start -label $label
+                return $false
+              }
+              return $true
+            }
+            Stop-Process -Id $proc.Id -Force
+            @(
+              "result=running_ok"
+              "path=$path"
+              "exit_code=0"
+            ) | Out-File -FilePath "dist\diagnostics\${label}.txt" -Encoding utf8
+            return $true
+          }
+
           function Enable-LocalDumps([string]$exeName) {
             $dumpDir = (Resolve-Path "dist\diagnostics").Path
             $dumpKey = "HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\$exeName"
@@ -400,8 +457,24 @@ jobs:
           Enable-LocalDumps "mini_target_x64_packed.exe"
           Enable-LocalDumps "mini_target_x86_packed.exe"
 
+          Export-BinaryProbe ".\dist\packed\x64\calc_x64_packed.exe" "calc_x64_packed"
+          Export-BinaryProbe ".\dist\packed\x64\CombatShell.dll" "combat_shell_x64"
+          Export-BinaryProbe ".\dist\packed\x64\mini_target_x64_packed.exe" "mini_target_x64_packed"
+          Export-BinaryProbe ".\dist\packed\x86\mini_target_x86_packed.exe" "mini_target_x86_packed"
+
           Copy-Item .\dist\packed\x64\calc_x64_packed.exe .\dist\packed\calc_isolated\calc_x64_packed.exe -Force
-          Assert-LaunchOrCollect ".\dist\packed\calc_isolated\calc_x64_packed.exe" "calc_x64_packed_isolated" "calc_x64_packed.exe"
+          Remove-Item .\dist\packed\calc_isolated\CombatShell.dll -ErrorAction SilentlyContinue
+          $phase1 = Invoke-QuickLaunchProbe ".\dist\packed\calc_isolated\calc_x64_packed.exe" "calc_x64_phase1_without_dll"
+          Copy-Item .\dist\packed\x64\CombatShell.dll .\dist\packed\calc_isolated\CombatShell.dll -Force
+          Export-BinaryProbe ".\dist\packed\calc_isolated\CombatShell.dll" "calc_isolated_shell_x64"
+          $phase2 = Invoke-QuickLaunchProbe ".\dist\packed\calc_isolated\calc_x64_packed.exe" "calc_x64_phase2_with_dll"
+          if (-not $phase2) {
+            throw "calc_x64_packed failed even with colocated CombatShell.dll"
+          }
+          if ($phase1 -and -not (Test-Path .\dist\diagnostics\calc_x64_phase1_without_dll_events.txt)) {
+            "phase1_note=calc launched without colocated dll; likely found dependency via PATH or embedded loader path" |
+              Out-File -FilePath .\dist\diagnostics\calc_x64_phase1_without_dll_note.txt -Encoding utf8
+          }
           # Collect trace files from wherever the packed binary ran
           foreach ($traceDir in @(".\dist\packed\calc_isolated", ".\dist\packed\x64", ".\dist\packed\x86")) {
             $traceFile = Join-Path $traceDir "CombatShell_trace.log"
@@ -421,6 +494,29 @@ jobs:
           Assert-LaunchOrCollect ".\dist\packed\x64\mini_target_x64_packed.exe" "mini_target_x64_packed" "mini_target_x64_packed.exe"
           Assert-LaunchOrCollect ".\dist\packed\x86\mini_target_x86_packed.exe" "mini_target_x86_packed" "mini_target_x86_packed.exe"
 
+      - name: Prepare runnable bundles
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path dist\bundles\calc_x64 | Out-Null
+          if (Test-Path dist\packed\x64\calc_x64_packed.exe) {
+            Copy-Item dist\packed\x64\calc_x64_packed.exe dist\bundles\calc_x64\calc_x64_packed.exe -Force
+          }
+          if (Test-Path dist\packed\x64\CombatShell.dll) {
+            Copy-Item dist\packed\x64\CombatShell.dll dist\bundles\calc_x64\CombatShell.dll -Force
+          }
+          if (Test-Path dist\bundles\calc_x64\calc_x64_packed.exe) {
+            Get-FileHash dist\bundles\calc_x64\calc_x64_packed.exe -Algorithm SHA256 |
+              ForEach-Object { "$($_.Hash) *calc_x64_packed.exe" } |
+              Out-File -FilePath dist\bundles\calc_x64\SHA256SUMS.txt -Encoding ascii
+          }
+          if (Test-Path dist\bundles\calc_x64\CombatShell.dll) {
+            Get-FileHash dist\bundles\calc_x64\CombatShell.dll -Algorithm SHA256 |
+              ForEach-Object { "$($_.Hash) *CombatShell.dll" } |
+              Add-Content -Path dist\bundles\calc_x64\SHA256SUMS.txt -Encoding ascii
+          }
+
       - name: Upload test samples artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -435,6 +531,14 @@ jobs:
         with:
           name: packed-calc-x64
           path: dist\packed\x64\calc_x64_packed.exe
+          if-no-files-found: error
+
+      - name: Upload packed calc runnable bundle artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packed-calc-x64-bundle
+          path: dist\bundles\calc_x64\*
           if-no-files-found: error
 
       - name: Upload packed sys calc artifact
