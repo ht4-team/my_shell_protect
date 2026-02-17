@@ -603,46 +603,46 @@ jobs:
             Copy-Item dist\bundles\calc_x86\CombatShell.dll dist\bundles\calc_universal\x86\CombatShell.dll -Force
           }
 
-          @'
-@echo off
-setlocal
-cd /d "%~dp0"
-if /I "%PROCESSOR_ARCHITECTURE%"=="AMD64" (
-  if exist ".\x64\calc_x64_packed.exe" (
-    start "" ".\x64\calc_x64_packed.exe"
-    exit /b %errorlevel%
-  )
-)
-if exist ".\x86\calc_x86_packed.exe" (
-  start "" ".\x86\calc_x86_packed.exe"
-  exit /b %errorlevel%
-)
-echo No runnable calc payload found.
-exit /b 1
-'@ | Out-File -FilePath dist\bundles\calc_universal\RUN_ME.cmd -Encoding ascii
+          @(
+            '@echo off',
+            'setlocal',
+            'cd /d "%~dp0"',
+            'if /I "%PROCESSOR_ARCHITECTURE%"=="AMD64" (',
+            '  if exist ".\x64\calc_x64_packed.exe" (',
+            '    start "" ".\x64\calc_x64_packed.exe"',
+            '    exit /b %errorlevel%',
+            '  )',
+            ')',
+            'if exist ".\x86\calc_x86_packed.exe" (',
+            '  start "" ".\x86\calc_x86_packed.exe"',
+            '  exit /b %errorlevel%',
+            ')',
+            'echo No runnable calc payload found.',
+            'exit /b 1'
+          ) | Set-Content -Path dist\bundles\calc_universal\RUN_ME.cmd -Encoding ascii
 
-          @'
-$ErrorActionPreference = "Stop"
-function Get-PeMachine([string]$path) {
-  if (-not (Test-Path $path)) { return "missing" }
-  $b = [System.IO.File]::ReadAllBytes((Resolve-Path $path).Path)
-  if ($b.Length -lt 0x40) { return "invalid" }
-  $peOff = [BitConverter]::ToInt32($b, 0x3C)
-  if ($peOff -le 0 -or ($peOff + 6) -ge $b.Length) { return "invalid" }
-  $m = [BitConverter]::ToUInt16($b, $peOff + 4)
-  return ('0x{0:X}' -f $m)
-}
-Write-Host "OS:" ([Environment]::OSVersion.VersionString)
-Write-Host "ProcArch:" $env:PROCESSOR_ARCHITECTURE
-Write-Host "x64 calc machine:" (Get-PeMachine ".\x64\calc_x64_packed.exe")
-Write-Host "x86 calc machine:" (Get-PeMachine ".\x86\calc_x86_packed.exe")
-if (Test-Path ".\x64\calc_x64_packed.exe") {
-  (Get-FileHash ".\x64\calc_x64_packed.exe" -Algorithm SHA256).Hash | ForEach-Object { "x64_calc_sha256=$_" }
-}
-if (Test-Path ".\x86\calc_x86_packed.exe") {
-  (Get-FileHash ".\x86\calc_x86_packed.exe" -Algorithm SHA256).Hash | ForEach-Object { "x86_calc_sha256=$_" }
-}
-'@ | Out-File -FilePath dist\bundles\calc_universal\diagnose.ps1 -Encoding utf8
+          @(
+            '$ErrorActionPreference = "Stop"',
+            'function Get-PeMachine([string]$path) {',
+            '  if (-not (Test-Path $path)) { return "missing" }',
+            '  $b = [System.IO.File]::ReadAllBytes((Resolve-Path $path).Path)',
+            '  if ($b.Length -lt 0x40) { return "invalid" }',
+            '  $peOff = [BitConverter]::ToInt32($b, 0x3C)',
+            '  if ($peOff -le 0 -or ($peOff + 6) -ge $b.Length) { return "invalid" }',
+            '  $m = [BitConverter]::ToUInt16($b, $peOff + 4)',
+            '  return (''0x{0:X}'' -f $m)',
+            '}',
+            'Write-Host "OS:" ([Environment]::OSVersion.VersionString)',
+            'Write-Host "ProcArch:" $env:PROCESSOR_ARCHITECTURE',
+            'Write-Host "x64 calc machine:" (Get-PeMachine ".\x64\calc_x64_packed.exe")',
+            'Write-Host "x86 calc machine:" (Get-PeMachine ".\x86\calc_x86_packed.exe")',
+            'if (Test-Path ".\x64\calc_x64_packed.exe") {',
+            '  (Get-FileHash ".\x64\calc_x64_packed.exe" -Algorithm SHA256).Hash | ForEach-Object { "x64_calc_sha256=$_" }',
+            '}',
+            'if (Test-Path ".\x86\calc_x86_packed.exe") {',
+            '  (Get-FileHash ".\x86\calc_x86_packed.exe" -Algorithm SHA256).Hash | ForEach-Object { "x86_calc_sha256=$_" }',
+            '}'
+          ) | Set-Content -Path dist\bundles\calc_universal\diagnose.ps1 -Encoding utf8
 
       - name: Upload test samples artifact
         if: always()
