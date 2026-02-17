@@ -53,6 +53,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          $calcMinWinVer = "6.1"
           New-Item -ItemType Directory -Force -Path dist\diagnostics | Out-Null
           $diagDir = (Resolve-Path "dist\diagnostics").Path
           $packExceptionLog = Join-Path $diagDir "pack_exception.txt"
@@ -198,7 +199,7 @@ jobs:
           Mark-Step "x64:calc-baseline:start"
           Assert-LaunchOrCollect ".\calc.exe" "calc_x64_baseline"
           Mark-Step "x64:calc-pack:start"
-          .\CombatShellCli.exe pack .\calc.exe
+          .\CombatShellCli.exe pack .\calc.exe --min-winver $calcMinWinVer
           .\CombatShellCli.exe inspect .\calc.exe
           Assert-MonotonicRawOffsets ".\calc.exe"
           Copy-Item .\calc.exe ..\..\..\dist\packed\x64\calc_x64_packed.exe -Force
@@ -220,7 +221,7 @@ jobs:
             try {
               .\CombatShellCli.exe inspect .\sys_calc.exe
               Assert-LaunchOrCollect ".\sys_calc.exe" "sys_calc_x64_baseline"
-              .\CombatShellCli.exe pack .\sys_calc.exe
+              .\CombatShellCli.exe pack .\sys_calc.exe --min-winver $calcMinWinVer
               .\CombatShellCli.exe inspect .\sys_calc.exe
               Copy-Item .\sys_calc.exe ..\..\..\dist\packed\x64\sys_calc_x64_packed.exe -Force
               Assert-LaunchOrCollect ".\sys_calc.exe" "sys_calc_x64_packed"
@@ -247,7 +248,7 @@ jobs:
           Push-Location test\samples\x86
           if (Test-Path .\calc.exe) {
             .\CombatShellCli.exe inspect .\calc.exe
-            .\CombatShellCli.exe pack .\calc.exe
+            .\CombatShellCli.exe pack .\calc.exe --min-winver $calcMinWinVer
             .\CombatShellCli.exe inspect .\calc.exe
             Assert-MonotonicRawOffsets ".\calc.exe"
             Copy-Item .\calc.exe ..\..\..\dist\packed\x86\calc_x86_packed.exe -Force

@@ -13,6 +13,11 @@ char g_CombatShellDataLocalFile[MAX_PATH] = { 0 };
 
 namespace {
 constexpr const char* kNewSectionName = ".VMP";
+struct PackOptions {
+	bool hasMinWinVersion = false;
+	WORD majorVersion = 0;
+	WORD minorVersion = 0;
+};
 
 const wchar_t* MachineToArchWord(const WORD machine) {
 	switch (machine) {
@@ -99,13 +104,115 @@ bool InspectPe(const wchar_t* path) {
 void PrintUsage() {
 	wprintf(
 		L"Usage:\n"
-		L"  CombatShellCli.exe pack <target.exe>\n"
+		L"  CombatShellCli.exe pack <target.exe> [--min-winver <major.minor>]\n"
 		L"  CombatShellCli.exe unpack <target.exe>\n"
 		L"  CombatShellCli.exe inspect <target.exe>\n"
 		L"\\n"
 		L"Notes:\n"
 		L"  - Keep CombatShell.dll in the same directory as the executable.\n"
-		L"  - A data file '<target>_CombatShellData.dat' is created during packing.\n");
+		L"  - A data file '<target>_CombatShellData.dat' is created during packing.\n"
+		L"  - Example: CombatShellCli.exe pack app.exe --min-winver 6.1\n");
+}
+
+bool ParseVersion(const wchar_t* input, WORD& majorOut, WORD& minorOut) {
+	if (input == nullptr || *input == L'\0') {
+		return false;
+	}
+	unsigned int major = 0;
+	unsigned int minor = 0;
+	wchar_t tail = L'\0';
+	const int matched = swscanf(input, L"%u.%u%lc", &major, &minor, &tail);
+	if (matched != 2 || major > 0xFFFF || minor > 0xFFFF) {
+		return false;
+	}
+	majorOut = static_cast<WORD>(major);
+	minorOut = static_cast<WORD>(minor);
+	return true;
+}
+
+bool ApplyMinWinVersion(const CString& targetPath, const PackOptions& options) {
+	if (!options.hasMinWinVersion) {
+		return true;
+	}
+
+	const HANDLE file = CreateFileW(
+		targetPath,
+		GENERIC_READ | GENERIC_WRITE,
+		FILE_SHARE_READ,
+		nullptr,
+		OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL,
+		nullptr);
+	if (file == INVALID_HANDLE_VALUE) {
+		fwprintf(stderr, L"pack: open output failed for min-winver patch: %ls\n", (LPCWSTR)targetPath);
+		return false;
+	}
+
+	const DWORD size = GetFileSize(file, nullptr);
+	if (size == INVALID_FILE_SIZE || size < sizeof(IMAGE_DOS_HEADER) + sizeof(IMAGE_NT_HEADERS64)) {
+		CloseHandle(file);
+		fwprintf(stderr, L"pack: invalid output size for min-winver patch\n");
+		return false;
+	}
+
+	char* buf = static_cast<char*>(malloc(size));
+	if (buf == nullptr) {
+		CloseHandle(file);
+		fwprintf(stderr, L"pack: out of memory for min-winver patch\n");
+		return false;
+	}
+
+	DWORD readSize = 0;
+	if (!ReadFile(file, buf, size, &readSize, nullptr) || readSize != size) {
+		free(buf);
+		CloseHandle(file);
+		fwprintf(stderr, L"pack: read output failed for min-winver patch\n");
+		return false;
+	}
+
+	bool ok = false;
+	const IMAGE_DOS_HEADER* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(buf);
+	if (dos->e_magic == IMAGE_DOS_SIGNATURE && dos->e_lfanew > 0 && static_cast<DWORD>(dos->e_lfanew) + sizeof(IMAGE_NT_HEADERS32) <= size) {
+		const DWORD ntOffset = static_cast<DWORD>(dos->e_lfanew);
+		IMAGE_NT_HEADERS32* nt32 = reinterpret_cast<IMAGE_NT_HEADERS32*>(buf + ntOffset);
+		if (nt32->Signature == IMAGE_NT_SIGNATURE) {
+			if (nt32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC) {
+				nt32->OptionalHeader.MajorOperatingSystemVersion = options.majorVersion;
+				nt32->OptionalHeader.MinorOperatingSystemVersion = options.minorVersion;
+				nt32->OptionalHeader.MajorSubsystemVersion = options.majorVersion;
+				nt32->OptionalHeader.MinorSubsystemVersion = options.minorVersion;
+				ok = true;
+			} else if (nt32->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC &&
+				ntOffset + sizeof(IMAGE_NT_HEADERS64) <= size) {
+				IMAGE_NT_HEADERS64* nt64 = reinterpret_cast<IMAGE_NT_HEADERS64*>(buf + ntOffset);
+				nt64->OptionalHeader.MajorOperatingSystemVersion = options.majorVersion;
+				nt64->OptionalHeader.MinorOperatingSystemVersion = options.minorVersion;
+				nt64->OptionalHeader.MajorSubsystemVersion = options.majorVersion;
+				nt64->OptionalHeader.MinorSubsystemVersion = options.minorVersion;
+				ok = true;
+			}
+		}
+	}
+
+	if (!ok) {
+		free(buf);
+		CloseHandle(file);
+		fwprintf(stderr, L"pack: unsupported PE format for min-winver patch\n");
+		return false;
+	}
+
+	SetFilePointer(file, 0, nullptr, FILE_BEGIN);
+	DWORD written = 0;
+	if (!WriteFile(file, buf, size, &written, nullptr) || written != size) {
+		free(buf);
+		CloseHandle(file);
+		fwprintf(stderr, L"pack: write output failed for min-winver patch\n");
+		return false;
+	}
+	free(buf);
+	CloseHandle(file);
+	fprintf(stdout, "pack: min_winver=%u.%u\n", options.majorVersion, options.minorVersion);
+	return true;
 }
 
 bool BuildCombatDataFilePath(const CString& targetPath) {
@@ -194,7 +301,7 @@ bool AddNewSectionAndUpdateOep(const CString& targetPath, DWORD& oldOep) {
 	return ok == TRUE;
 }
 
-bool RunPack(const CString& inputPath) {
+bool RunPack(const CString& inputPath, const PackOptions& options) {
 	if (!BuildCombatDataFilePath(inputPath)) {
 		return false;
 	}
@@ -243,6 +350,10 @@ bool RunPack(const CString& inputPath) {
 		return false;
 	}
 	DeleteFile(compressionMask);
+	if (!ApplyMinWinVersion(inputPath, options)) {
+		fprintf(stderr, "patch min win version failed\n");
+		return false;
+	}
 	fprintf(stdout, "pack: output=%ls\n", (LPCWSTR)inputPath);
 	return true;
 }
@@ -305,7 +416,29 @@ int wmain(int argc, wchar_t* argv[]) {
 	const CString targetPath = target;
 	bool ok = false;
 	if (_wcsicmp(command, L"pack") == 0) {
-		ok = RunPack(targetPath);
+		PackOptions options;
+		for (int i = 3; i < argc; ++i) {
+			if (_wcsicmp(argv[i], L"--min-winver") == 0) {
+				if (i + 1 >= argc) {
+					fwprintf(stderr, L"missing value for --min-winver\n");
+					return 2;
+				}
+				WORD major = 0;
+				WORD minor = 0;
+				if (!ParseVersion(argv[i + 1], major, minor)) {
+					fwprintf(stderr, L"invalid --min-winver value: %ls\n", argv[i + 1]);
+					return 2;
+				}
+				options.hasMinWinVersion = true;
+				options.majorVersion = major;
+				options.minorVersion = minor;
+				++i;
+				continue;
+			}
+			fwprintf(stderr, L"unknown pack option: %ls\n", argv[i]);
+			return 2;
+		}
+		ok = RunPack(targetPath, options);
 	} else if (_wcsicmp(command, L"unpack") == 0) {
 		ok = RunUnpack(targetPath);
 	} else if (_wcsicmp(command, L"inspect") == 0) {
