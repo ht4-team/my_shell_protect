@@ -461,6 +461,45 @@ jobs:
           path: dist\packed\x86\mini_target_x86_packed.exe
           if-no-files-found: error
 
+      - name: Export packed PE headers
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist\diagnostics | Out-Null
+          function Dump-PeHeader([string]$path, [string]$label) {
+            if (-not (Test-Path $path)) { return }
+            $b = [System.IO.File]::ReadAllBytes($path)
+            if ($b.Length -lt 0x100) { return }
+            $peOff = [BitConverter]::ToInt32($b, 0x3C)
+            if ($peOff -le 0 -or ($peOff + 0x80) -ge $b.Length) { return }
+            $machine = [BitConverter]::ToUInt16($b, $peOff + 4)
+            $nsec = [BitConverter]::ToUInt16($b, $peOff + 6)
+            $optSize = [BitConverter]::ToUInt16($b, $peOff + 20)
+            $opt = $peOff + 24
+            $magic = [BitConverter]::ToUInt16($b, $opt)
+            $entry = [BitConverter]::ToUInt32($b, $opt + 16)
+            $secAlign = [BitConverter]::ToUInt32($b, $opt + 32)
+            $fileAlign = [BitConverter]::ToUInt32($b, $opt + 36)
+            $sizeImage = [BitConverter]::ToUInt32($b, $opt + 56)
+            $sizeHeaders = [BitConverter]::ToUInt32($b, $opt + 60)
+            $dllChars = [BitConverter]::ToUInt16($b, $opt + 70)
+            @(
+              "file=$path"
+              "machine=0x{0:X}" -f $machine
+              "sections=$nsec"
+              "magic=0x{0:X}" -f $magic
+              "oep=0x{0:X}" -f $entry
+              "section_alignment=0x{0:X}" -f $secAlign
+              "file_alignment=0x{0:X}" -f $fileAlign
+              "size_of_image=0x{0:X}" -f $sizeImage
+              "size_of_headers=0x{0:X}" -f $sizeHeaders
+              "dll_characteristics=0x{0:X}" -f $dllChars
+            ) | Out-File -FilePath "dist\diagnostics\${label}_pe_header.txt" -Encoding utf8
+          }
+          Dump-PeHeader "dist\packed\x64\calc_x64_packed.exe" "calc_x64_packed"
+          Dump-PeHeader "dist\packed\x64\mini_target_x64_packed.exe" "mini_target_x64_packed"
+          Dump-PeHeader "dist\packed\x86\mini_target_x86_packed.exe" "mini_target_x86_packed"
+
       - name: Upload crash diagnostics artifact
         if: always()
         uses: actions/upload-artifact@v4
