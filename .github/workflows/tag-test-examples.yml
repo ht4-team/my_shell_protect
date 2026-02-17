@@ -79,7 +79,7 @@ jobs:
               $events |
                 Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message |
                 Format-List |
-                Out-File -FilePath "dist\diagnostics\${label}_events.txt" -Encoding utf8
+                Out-File -FilePath (Join-Path $diagDir "${label}_events.txt") -Encoding utf8
             }
           }
 
@@ -275,6 +275,7 @@ jobs:
           $ErrorActionPreference = "Stop"
 
           New-Item -ItemType Directory -Force -Path dist\diagnostics | Out-Null
+          $diagDir = (Resolve-Path "dist\diagnostics").Path
           New-Item -ItemType Directory -Force -Path dist\packed\calc_isolated | Out-Null
 
           function Resolve-DumpbinPath() {
@@ -375,7 +376,7 @@ jobs:
               $events |
                 Select-Object TimeCreated, ProviderName, Id, LevelDisplayName, Message |
                 Format-List |
-                Out-File -FilePath "dist\diagnostics\${label}_events.txt" -Encoding utf8
+                Out-File -FilePath (Join-Path $diagDir "${label}_events.txt") -Encoding utf8
             }
           }
 
