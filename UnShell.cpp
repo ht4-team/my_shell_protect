@@ -48,6 +48,10 @@ BOOL UnShell::UnShellEx()
 		AfxMessageBox(L"UnShellerProPath Empty faliuer");
 		return false;
 	}
+	if (hFile == INVALID_HANDLE_VALUE) {
+		AfxMessageBox(L"Open target file failed");
+		return false;
+	}
 
 	DWORD dwSize = GetFileSize(hFile, NULL);
 	m_Base = (void*)malloc(dwSize + 1);
@@ -253,7 +257,7 @@ BOOL UnShell::SaveUnShell()
 	m_sUnShellPath = CodeTool::wstring2string((csTargetDirectory + L"UnShellNewPro.exe").GetString()).c_str();
 	HANDLE Handle = CreateFile(CodeTool::string2wstring(m_sUnShellPath).c_str(), GENERIC_READ | GENERIC_WRITE, FALSE, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	int nRet = 0;
-	if (Handle != nullptr && Handle) {
+	if (Handle != INVALID_HANDLE_VALUE) {
 		nRet = WriteFile(Handle, UnShellNewFile, Size, &dwWrite, NULL);
 		CloseHandle(Handle);
 	}

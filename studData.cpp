@@ -111,9 +111,6 @@ BOOL studData::RepairReloCationStud()
 		WORD type : 4;
 	}Node, *PNode;
 
-#ifdef _WIN64
-	LONGLONG dwDelta = (__int64)m_studBase - m_ImageBase64;
-#endif
 	DWORD OldAttribute = 0;
 	while (pStuRelocation->SizeOfBlock)
 	{
@@ -133,11 +130,14 @@ BOOL studData::RepairReloCationStud()
 				VirtualProtect(pRel, 8, OldAttribute, &OldAttribute);
 			}
 #ifdef _WIN64
-			if (RelType->type == 10) {
+			if (RelType[i].type == 10) {
 				PULONGLONG pAddress = (PULONGLONG)((DWORD64)m_studBase + pStuRelocation->VirtualAddress + RelType[i].offset);
 				VirtualProtect(pAddress, 8, PAGE_READWRITE, &OldAttribute);
-				*pAddress += dwDelta;
-				//*pAddress = *pAddress - (DWORD64)m_studBase - ((PIMAGE_SECTION_HEADER)m_dwStudSectionAddress64)->VirtualAddress + ((PIMAGE_SECTION_HEADER)m_dwNewSectionAddress64)->VirtualAddress + m_ImageBase64;
+				*pAddress = *pAddress
+					- (DWORD64)m_studBase
+					- ((PIMAGE_SECTION_HEADER)m_dwStudSectionAddress64)->VirtualAddress
+					+ ((PIMAGE_SECTION_HEADER)m_dwNewSectionAddress64)->VirtualAddress
+					+ m_ImageBase64;
 				VirtualProtect(pAddress, 8, OldAttribute, &OldAttribute);
 			}
 
@@ -173,7 +173,7 @@ BOOL studData::CopyStud()
 	);
 #endif
 
-	DWORD dwRiteFile = 0;	OVERLAPPED overLapped = { 0 };
+	DWORD dwRiteFile = 0;
 	PIMAGE_NT_HEADERS pNt = (PIMAGE_NT_HEADERS)SinglePuPEInfo::instance()->puGetNtHeadre();
 	if (!pNt)
 		return false;
@@ -185,8 +185,14 @@ BOOL studData::CopyStud()
 	pNt->OptionalHeader.AddressOfEntryPoint = (DWORD)dexportAddress - (DWORD)m_studBase - studSection->VirtualAddress + SurceBase->VirtualAddress;
 #endif
 
-	int nRet = WriteFile(SinglePuPEInfo::instance()->puFileHandle(), SinglePuPEInfo::instance()->puGetImageBase(), SinglePuPEInfo::instance()->puFileSize(), &dwRiteFile, &overLapped);
-	if (!nRet)
+	HANDLE hFile = SinglePuPEInfo::instance()->puFileHandle();
+	if (!hFile || hFile == INVALID_HANDLE_VALUE)
+		return FALSE;
+	SetFilePointer(hFile, 0, nullptr, FILE_BEGIN);
+	SetEndOfFile(hFile);
+
+	int nRet = WriteFile(hFile, SinglePuPEInfo::instance()->puGetImageBase(), SinglePuPEInfo::instance()->puFileSize(), &dwRiteFile, NULL);
+	if (!nRet || dwRiteFile != SinglePuPEInfo::instance()->puFileSize())
 		return FALSE;
 	return TRUE;
 }

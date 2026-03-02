@@ -53,7 +53,7 @@ BOOL PuPEInfo::prOpenFile(const CString & PathName)
 		return false;
 
 	HANDLE hFile = CreateFile(PathName, GENERIC_READ | GENERIC_WRITE, FALSE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-	if ((int)hFile <= 0){ 
+	if (hFile == INVALID_HANDLE_VALUE){ 
 		AfxMessageBox(L"打开文件失败"); 
 		return FALSE; 
 	}
