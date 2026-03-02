@@ -52,6 +52,24 @@ function Assert-CalcLaunch {
     Stop-Process -Id $proc.Id -Force
 }
 
+function Stop-ProcessByPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (!(Test-Path $Path)) {
+        return
+    }
+    $target = (Resolve-Path $Path).Path
+    $name = [System.IO.Path]::GetFileNameWithoutExtension($target)
+    $procs = Get-Process -Name $name -ErrorAction SilentlyContinue
+    foreach ($p in $procs) {
+        try {
+            if ($p.Path -eq $target) {
+                Stop-Process -Id $p.Id -Force
+            }
+        } catch {
+        }
+    }
+}
+
 function Get-PeMachine {
     param([Parameter(Mandatory = $true)][string]$Path)
     $fs = [System.IO.File]::OpenRead($Path)
@@ -141,6 +159,7 @@ try {
     }
 }
 finally {
+    Stop-ProcessByPath ".\\calc.exe"
     Pop-Location
 }
 
