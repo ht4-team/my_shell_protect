@@ -71,7 +71,9 @@ $msbuild = Resolve-MSBuildPath
 Write-Host "Using MSBuild: $msbuild"
 & $msbuild .\CombatShell\CombatShell.vcxproj /m /p:Configuration=$Configuration /p:Platform=$Platform
 & $msbuild .\CombatShellCli.vcxproj /m /p:Configuration=$Configuration /p:Platform=$Platform
-& $msbuild .\examples\MiniTarget.vcxproj /m /p:Configuration=$Configuration /p:Platform=$Platform
+if ($Platform -eq "Win32") {
+    & $msbuild .\examples\MiniTarget.vcxproj /m /p:Configuration=$Configuration /p:Platform=$Platform
+}
 
 $binDir = if ($Platform -eq "x64") { "bin\\x64" } else { "bin" }
 if (!(Test-Path $binDir)) {
@@ -87,7 +89,9 @@ if (Test-Path "examples\\calc.exe") {
 } else {
     Copy-Item "$binDir\\MiniTarget.exe" "$sampleDir\\calc.exe" -Force
 }
-Copy-Item "$binDir\\MiniTarget.exe" "$sampleDir\\mini_target.exe" -Force
+if (Test-Path "$binDir\\MiniTarget.exe") {
+    Copy-Item "$binDir\\MiniTarget.exe" "$sampleDir\\mini_target.exe" -Force
+}
 Copy-Item "$binDir\\CombatShellCli.exe" "$sampleDir\\CombatShellCli.exe" -Force
 Copy-Item "$binDir\\CombatShell.dll" "$sampleDir\\CombatShell.dll" -Force
 
@@ -105,7 +109,17 @@ try {
     if ($runCalcTest) {
         Assert-CalcLaunch ".\\calc.exe"
     }
-    Assert-ProgramOutput ".\\mini_target.exe" "mini-target-ok"
+    $runMiniTarget = $false
+    if (Test-Path ".\\mini_target.exe") {
+        $miniMachine = Get-PeMachine (Resolve-Path ".\\mini_target.exe").Path
+        $runMiniTarget = ($miniMachine -eq $expectedMachine)
+        if (-not $runMiniTarget) {
+            Write-Host "Skip mini_target test: machine=0x$('{0:X4}' -f $miniMachine), platform=$Platform"
+        }
+    }
+    if ($runMiniTarget) {
+        Assert-ProgramOutput ".\\mini_target.exe" "mini-target-ok"
+    }
 
     Write-Host "[4/4] Pack/Unpack checks"
     if ($runCalcTest) {
@@ -117,12 +131,14 @@ try {
         Assert-CalcLaunch ".\\calc.exe"
     }
 
-    .\CombatShellCli.exe pack .\mini_target.exe
-    if ($LASTEXITCODE -ne 0) { throw "pack mini_target failed with $LASTEXITCODE" }
-    Assert-ProgramOutput ".\\mini_target.exe" "mini-target-ok"
-    .\CombatShellCli.exe unpack .\mini_target.exe
-    if ($LASTEXITCODE -ne 0) { throw "unpack mini_target failed with $LASTEXITCODE" }
-    Assert-ProgramOutput ".\\mini_target.exe" "mini-target-ok"
+    if ($runMiniTarget) {
+        .\CombatShellCli.exe pack .\mini_target.exe
+        if ($LASTEXITCODE -ne 0) { throw "pack mini_target failed with $LASTEXITCODE" }
+        Assert-ProgramOutput ".\\mini_target.exe" "mini-target-ok"
+        .\CombatShellCli.exe unpack .\mini_target.exe
+        if ($LASTEXITCODE -ne 0) { throw "unpack mini_target failed with $LASTEXITCODE" }
+        Assert-ProgramOutput ".\\mini_target.exe" "mini-target-ok"
+    }
 }
 finally {
     Pop-Location

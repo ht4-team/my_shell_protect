@@ -583,7 +583,28 @@ void WINAPI CombatShellEntry()
 	MyVirtualProtect = (FnVirtualProtect)puGetProcAddress(g_stud.s_Krenel32, 0xEF64A41E);
 	// GetMyGetProcessAddress
 	MyGetProcAddress = (FnGetProcAddress)puGetProcAddress(g_stud.s_Krenel32, 0xBBAFDF85);
-	
+
+#ifndef _WIN64
+	// x86 direct path: avoid unstable UI flow, run shell restoration and jump back to OEP.
+	UnCompression();
+	RepairTheIAT();
+	__asm {
+		push esi;
+		push eax;
+		mov	 esi, g_stud.s_dwOepBase;
+		xor	 eax, eax;
+		add  eax, 0x200000;
+		add	 eax, 0x200000;
+		add	 eax, 0x200000;
+		sub  eax, 0x200000;
+		add  esi, eax;
+		jmp	 esi;
+		pop eax;
+		pop esi;
+	}
+	return;
+#endif
+
 	CreateWind();
 }
 

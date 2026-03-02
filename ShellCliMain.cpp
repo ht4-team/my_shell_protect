@@ -87,7 +87,7 @@ bool AddNewSectionAndUpdateOep(const CString& targetPath, DWORD& oldOep) {
 	const std::string stubPath = currentDir + "CombatShell.dll";
 	const HANDLE hFile = CreateFileA(
 		stubPath.c_str(),
-		GENERIC_READ | GENERIC_WRITE,
+		GENERIC_READ,
 		FILE_SHARE_READ | FILE_SHARE_WRITE,
 		nullptr,
 		OPEN_EXISTING,
@@ -119,46 +119,24 @@ bool AddNewSectionAndUpdateOep(const CString& targetPath, DWORD& oldOep) {
 	return ok == TRUE;
 }
 
-bool RunPack(const CString& inputPath) {
-	if (!BuildCombatDataFilePath(inputPath)) {
+bool RunCompatPack(const CString& inputPath) {
+	DWORD oldOep = 0;
+	if (!AddNewSectionAndUpdateOep(inputPath, oldOep)) {
+		fprintf(stderr, "add section failed in tramp mode\n");
 		return false;
 	}
-
-	CString fileName = inputPath;
-	const int slashPos = fileName.ReverseFind('\\') + 1;
-	const CString targetDirectory = fileName.Left(slashPos);
-	fileName = fileName.Mid(slashPos);
-
-	// Backup original executable.
-	CopyFile(inputPath, targetDirectory + L"old_" + fileName, FALSE);
-
-	bool useLegacy = IsLegacyModeEnabled();
-	if (!useLegacy) {
-		// x64 targets prefer real shell flow by default.
-		const WORD machine = GetTargetMachine(inputPath);
-		if (machine == IMAGE_FILE_MACHINE_AMD64) {
-			useLegacy = true;
-		}
+	if (!WriteTrampolineShell(inputPath, oldOep)) {
+		fprintf(stderr, "write trampoline shell failed\n");
+		return false;
 	}
-
-	// Safe trampoline mode for non-legacy flow.
-	if (!useLegacy) {
-		DWORD oldOep = 0;
-		if (!AddNewSectionAndUpdateOep(inputPath, oldOep)) {
-			fprintf(stderr, "add section failed in tramp mode\n");
-			return false;
-		}
-		if (!WriteTrampolineShell(inputPath, oldOep)) {
-			fprintf(stderr, "write trampoline shell failed\n");
-			return false;
-		}
-		if (!WriteCompatMarker()) {
-			fprintf(stderr, "failed to write tramp marker\n");
-			return false;
-		}
-		return true;
+	if (!WriteCompatMarker()) {
+		fprintf(stderr, "failed to write tramp marker\n");
+		return false;
 	}
+	return true;
+}
 
+bool RunLegacyPackCore(const CString& inputPath, const CString& targetDirectory) {
 	DWORD oldOep = 0;
 	if (!AddNewSectionAndUpdateOep(inputPath, oldOep)) {
 		fprintf(stderr, "add section failed\n");
@@ -193,6 +171,59 @@ bool RunPack(const CString& inputPath) {
 	}
 	DeleteFile(compressionMask);
 	return true;
+}
+
+bool RunLegacyPackNoCrash(const CString& inputPath, const CString& targetDirectory) {
+	__try {
+		return RunLegacyPackCore(inputPath, targetDirectory);
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER) {
+		fprintf(stderr, "legacy pack crashed (SEH), falling back\n");
+		return false;
+	}
+}
+
+bool RunPack(const CString& inputPath) {
+	if (!BuildCombatDataFilePath(inputPath)) {
+		return false;
+	}
+
+	CString fileName = inputPath;
+	const int slashPos = fileName.ReverseFind('\\') + 1;
+	const CString targetDirectory = fileName.Left(slashPos);
+	fileName = fileName.Mid(slashPos);
+	const CString backupPath = targetDirectory + L"old_" + fileName;
+
+	// Backup original executable.
+	CopyFile(inputPath, backupPath, FALSE);
+
+	bool useLegacy = IsLegacyModeEnabled();
+	if (!useLegacy) {
+		// x64 targets prefer real shell flow by default.
+		const WORD machine = GetTargetMachine(inputPath);
+		if (machine == IMAGE_FILE_MACHINE_AMD64) {
+			useLegacy = true;
+		}
+	}
+
+	// Safe trampoline mode for non-legacy flow.
+	if (!useLegacy) {
+		return RunCompatPack(inputPath);
+	}
+
+	if (RunLegacyPackNoCrash(inputPath, targetDirectory)) {
+		return true;
+	}
+
+	// x86 legacy flow is known unstable in some samples: restore and fallback.
+	if (GetTargetMachine(inputPath) == IMAGE_FILE_MACHINE_I386) {
+		if (FileExists(backupPath)) {
+			DeleteFile(inputPath);
+			CopyFile(backupPath, inputPath, FALSE);
+		}
+		return RunCompatPack(inputPath);
+	}
+	return false;
 }
 
 bool RunUnpack(const CString& inputPath) {
@@ -277,8 +308,9 @@ WORD GetTargetMachine(const CString& path) {
 bool IsLegacyModeEnabled() {
 	wchar_t value[8] = { 0 };
 	const DWORD len = GetEnvironmentVariableW(L"COMBATSHELL_LEGACY", value, _countof(value));
+	// Default to real shell mode. Set COMBATSHELL_LEGACY=0/false to force compat path.
 	if (len == 0 || len >= _countof(value)) {
-		return false;
+		return true;
 	}
 	if ((_wcsicmp(value, L"0") == 0) || (_wcsicmp(value, L"false") == 0)) {
 		return false;
