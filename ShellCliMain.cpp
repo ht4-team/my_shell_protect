@@ -13,13 +13,14 @@ char g_CombatShellDataLocalFile[MAX_PATH] = { 0 };
 
 namespace {
 constexpr const char* kNewSectionName = ".VMP";
-constexpr const char* kCompatMarker = "COMBATSHELL_SAFE_MODE\n";
+constexpr const char* kCompatMarker = "COMBATSHELL_TRAMP_SHELL\n";
 
 bool IsLegacyModeEnabled();
 bool WriteCompatMarker();
 bool IsCompatMarkerFile();
-bool RestoreOepInFile(const CString& path, DWORD oldOep);
+bool WriteTrampolineShell(const CString& path, DWORD oldOep);
 bool FileExists(const wchar_t* path);
+WORD GetTargetMachine(const CString& path);
 
 void PrintUsage() {
 	wprintf(
@@ -131,19 +132,28 @@ bool RunPack(const CString& inputPath) {
 	// Backup original executable.
 	CopyFile(inputPath, targetDirectory + L"old_" + fileName, FALSE);
 
-	// Default safe mode: add shell section but keep original OEP runnable.
-	if (!IsLegacyModeEnabled()) {
+	bool useLegacy = IsLegacyModeEnabled();
+	if (!useLegacy) {
+		// x64 targets prefer real shell flow by default.
+		const WORD machine = GetTargetMachine(inputPath);
+		if (machine == IMAGE_FILE_MACHINE_AMD64) {
+			useLegacy = true;
+		}
+	}
+
+	// Safe trampoline mode for non-legacy flow.
+	if (!useLegacy) {
 		DWORD oldOep = 0;
 		if (!AddNewSectionAndUpdateOep(inputPath, oldOep)) {
-			fprintf(stderr, "add section failed in safe mode\n");
+			fprintf(stderr, "add section failed in tramp mode\n");
 			return false;
 		}
-		if (!RestoreOepInFile(inputPath, oldOep)) {
-			fprintf(stderr, "restore OEP failed in safe mode\n");
+		if (!WriteTrampolineShell(inputPath, oldOep)) {
+			fprintf(stderr, "write trampoline shell failed\n");
 			return false;
 		}
 		if (!WriteCompatMarker()) {
-			fprintf(stderr, "failed to write safe-mode marker\n");
+			fprintf(stderr, "failed to write tramp marker\n");
 			return false;
 		}
 		return true;
@@ -189,18 +199,26 @@ bool RunUnpack(const CString& inputPath) {
 	if (!BuildCombatDataFilePath(inputPath)) {
 		return false;
 	}
+
+	CString fileName = inputPath;
+	const int slashPos = fileName.ReverseFind('\\') + 1;
+	const CString targetDirectory = fileName.Left(slashPos);
+	fileName = fileName.Mid(slashPos);
+	const CString backupPath = targetDirectory + L"old_" + fileName;
+
+	// Prefer backup-restore for stability in both modes.
+	if (FileExists(backupPath)) {
+		DeleteFile(inputPath);
+		if (!CopyFile(backupPath, inputPath, FALSE)) {
+			return false;
+		}
+		DeleteFile(backupPath);
+		DeleteFileA(g_CombatShellDataLocalFile);
+		return true;
+	}
+
 	if (!IsLegacyModeEnabled()) {
 		if (IsCompatMarkerFile()) {
-			CString fileName = inputPath;
-			const int slashPos = fileName.ReverseFind('\\') + 1;
-			const CString targetDirectory = fileName.Left(slashPos);
-			fileName = fileName.Mid(slashPos);
-			const CString backupPath = targetDirectory + L"old_" + fileName;
-			if (FileExists(backupPath)) {
-				DeleteFile(inputPath);
-				CopyFile(backupPath, inputPath, FALSE);
-				DeleteFile(backupPath);
-			}
 			DeleteFileA(g_CombatShellDataLocalFile);
 		}
 		return true;
@@ -242,6 +260,20 @@ bool FileExists(const wchar_t* path) {
 	return (attr != INVALID_FILE_ATTRIBUTES) && ((attr & FILE_ATTRIBUTE_DIRECTORY) == 0);
 }
 
+WORD GetTargetMachine(const CString& path) {
+	if (!SinglePuPEInfo::instance()->puOpenFileLoadEx(path)) {
+		return 0;
+	}
+	PIMAGE_NT_HEADERS pNt = (PIMAGE_NT_HEADERS)SinglePuPEInfo::instance()->puGetNtHeadre();
+	if (!pNt) {
+		SinglePuPEInfo::instance()->puClearPeData();
+		return 0;
+	}
+	const WORD machine = pNt->FileHeader.Machine;
+	SinglePuPEInfo::instance()->puClearPeData();
+	return machine;
+}
+
 bool IsLegacyModeEnabled() {
 	wchar_t value[8] = { 0 };
 	const DWORD len = GetEnvironmentVariableW(L"COMBATSHELL_LEGACY", value, _countof(value));
@@ -278,7 +310,7 @@ bool IsCompatMarkerFile() {
 	return strstr(buf, kCompatMarker) != nullptr;
 }
 
-bool RestoreOepInFile(const CString& path, DWORD oldOep) {
+bool WriteTrampolineShell(const CString& path, DWORD oldOep) {
 	if (!SinglePuPEInfo::instance()->puOpenFileLoadEx(path)) {
 		return false;
 	}
@@ -287,7 +319,25 @@ bool RestoreOepInFile(const CString& path, DWORD oldOep) {
 		SinglePuPEInfo::instance()->puClearPeData();
 		return false;
 	}
-	pNt->OptionalHeader.AddressOfEntryPoint = oldOep;
+	PIMAGE_SECTION_HEADER vmpSec = SinglePuPEInfo::instance()->puGetSectionAddress(
+		(char*)SinglePuPEInfo::instance()->puGetImageBase(), (BYTE*)kNewSectionName);
+	if (!vmpSec || vmpSec->PointerToRawData == 0 || vmpSec->SizeOfRawData < 8) {
+		SinglePuPEInfo::instance()->puClearPeData();
+		return false;
+	}
+
+	// E9 rel32 : jmp oldOep
+	BYTE* fileBase = (BYTE*)SinglePuPEInfo::instance()->puGetImageBase();
+	BYTE* stub = fileBase + vmpSec->PointerToRawData;
+	const DWORD stubRva = vmpSec->VirtualAddress;
+	const INT32 rel = static_cast<INT32>(oldOep - (stubRva + 5));
+	stub[0] = 0xE9;
+	memcpy(stub + 1, &rel, sizeof(rel));
+	stub[5] = 0x90;
+	stub[6] = 0x90;
+	stub[7] = 0x90;
+
+	pNt->OptionalHeader.AddressOfEntryPoint = stubRva;
 
 	HANDLE hFile = SinglePuPEInfo::instance()->puFileHandle();
 	if (!hFile || hFile == INVALID_HANDLE_VALUE) {
@@ -299,7 +349,7 @@ bool RestoreOepInFile(const CString& path, DWORD oldOep) {
 	DWORD written = 0;
 	const BOOL ok = WriteFile(
 		hFile,
-		SinglePuPEInfo::instance()->puGetImageBase(),
+		fileBase,
 		SinglePuPEInfo::instance()->puFileSize(),
 		&written,
 		nullptr);
