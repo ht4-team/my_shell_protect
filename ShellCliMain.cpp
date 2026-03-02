@@ -13,11 +13,13 @@ char g_CombatShellDataLocalFile[MAX_PATH] = { 0 };
 
 namespace {
 constexpr const char* kNewSectionName = ".VMP";
-constexpr const char* kCompatMarker = "COMBATSHELL_COMPAT_MODE\n";
+constexpr const char* kCompatMarker = "COMBATSHELL_SAFE_MODE\n";
 
 bool IsLegacyModeEnabled();
 bool WriteCompatMarker();
 bool IsCompatMarkerFile();
+bool RestoreOepInFile(const CString& path, DWORD oldOep);
+bool FileExists(const wchar_t* path);
 
 void PrintUsage() {
 	wprintf(
@@ -129,10 +131,19 @@ bool RunPack(const CString& inputPath) {
 	// Backup original executable.
 	CopyFile(inputPath, targetDirectory + L"old_" + fileName, FALSE);
 
-	// Default compatibility mode: keep binary runnable and only mark state for unpack.
+	// Default safe mode: add shell section but keep original OEP runnable.
 	if (!IsLegacyModeEnabled()) {
+		DWORD oldOep = 0;
+		if (!AddNewSectionAndUpdateOep(inputPath, oldOep)) {
+			fprintf(stderr, "add section failed in safe mode\n");
+			return false;
+		}
+		if (!RestoreOepInFile(inputPath, oldOep)) {
+			fprintf(stderr, "restore OEP failed in safe mode\n");
+			return false;
+		}
 		if (!WriteCompatMarker()) {
-			fprintf(stderr, "failed to write compatibility marker\n");
+			fprintf(stderr, "failed to write safe-mode marker\n");
 			return false;
 		}
 		return true;
@@ -180,6 +191,16 @@ bool RunUnpack(const CString& inputPath) {
 	}
 	if (!IsLegacyModeEnabled()) {
 		if (IsCompatMarkerFile()) {
+			CString fileName = inputPath;
+			const int slashPos = fileName.ReverseFind('\\') + 1;
+			const CString targetDirectory = fileName.Left(slashPos);
+			fileName = fileName.Mid(slashPos);
+			const CString backupPath = targetDirectory + L"old_" + fileName;
+			if (FileExists(backupPath)) {
+				DeleteFile(inputPath);
+				CopyFile(backupPath, inputPath, FALSE);
+				DeleteFile(backupPath);
+			}
 			DeleteFileA(g_CombatShellDataLocalFile);
 		}
 		return true;
@@ -227,7 +248,10 @@ bool IsLegacyModeEnabled() {
 	if (len == 0 || len >= _countof(value)) {
 		return false;
 	}
-	return (_wcsicmp(value, L"1") == 0) || (_wcsicmp(value, L"true") == 0);
+	if ((_wcsicmp(value, L"0") == 0) || (_wcsicmp(value, L"false") == 0)) {
+		return false;
+	}
+	return true;
 }
 
 bool WriteCompatMarker() {
@@ -252,6 +276,35 @@ bool IsCompatMarkerFile() {
 		return false;
 	}
 	return strstr(buf, kCompatMarker) != nullptr;
+}
+
+bool RestoreOepInFile(const CString& path, DWORD oldOep) {
+	if (!SinglePuPEInfo::instance()->puOpenFileLoadEx(path)) {
+		return false;
+	}
+	PIMAGE_NT_HEADERS pNt = (PIMAGE_NT_HEADERS)SinglePuPEInfo::instance()->puGetNtHeadre();
+	if (!pNt) {
+		SinglePuPEInfo::instance()->puClearPeData();
+		return false;
+	}
+	pNt->OptionalHeader.AddressOfEntryPoint = oldOep;
+
+	HANDLE hFile = SinglePuPEInfo::instance()->puFileHandle();
+	if (!hFile || hFile == INVALID_HANDLE_VALUE) {
+		SinglePuPEInfo::instance()->puClearPeData();
+		return false;
+	}
+	SetFilePointer(hFile, 0, nullptr, FILE_BEGIN);
+	SetEndOfFile(hFile);
+	DWORD written = 0;
+	const BOOL ok = WriteFile(
+		hFile,
+		SinglePuPEInfo::instance()->puGetImageBase(),
+		SinglePuPEInfo::instance()->puFileSize(),
+		&written,
+		nullptr);
+	SinglePuPEInfo::instance()->puClearPeData();
+	return ok == TRUE;
 }
 } // namespace
 

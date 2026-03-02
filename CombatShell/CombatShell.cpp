@@ -86,95 +86,136 @@ FnGetProcAddress MyGetProcAddress = nullptr;
 // x32 resolver
 #ifndef _WIN64
 namespace {
-const char* ResolveModuleNameByHash(const DWORD hash) {
-    switch (hash) {
-    case 0xEC1C6278: return "kernel32.dll";
-    case 0x5644673D: return "user32.dll";
-    case 0x328CEB95: return "msvcrt.dll";
-    default: return nullptr;
-    }
-}
+#pragma pack(push, 1)
+	typedef struct _UNICODE_STRING_X {
+		USHORT Length;
+		USHORT MaximumLength;
+		PWSTR Buffer;
+	} UNICODE_STRING_X;
 
-const char* ResolveFunctionNameByHash(const DWORD hash) {
-    switch (hash) {
-    case 0xC0D83287: return "LoadLibraryExA";
-    case 0x4FD18963: return "ExitProcess";
-    case 0xF4E2F2C8: return "GetModuleHandleW";
-    case 0x9BB5D8DC: return "UpdateWindow";
-    case 0x61060461: return "GetMessageW";
-    case 0xE09980A2: return "TranslateMessage";
-    case 0x7A1506D8: return "DispatchMessageW";
-    case 0xDD8B5FB8: return "ShowWindow";
-    case 0xC6B20165: return "LoadCursorW";
-    case 0x7636E8F4: return "LoadIconW";
-    case 0x0BC05E48: return "RegisterClassW";
-    case 0x68D82F59: return "RegisterClassExW";
-    case 0x1E380A6A: return "MessageBoxA";
-    case 0x1FDAF571: return "CreateWindowExW";
-    case 0x457BF55A: return "GetWindowTextW";
-    case 0x7EAD1F86: return "lstrcmpW";
-    case 0x22E85CBA: return "DefWindowProcW";
-    case 0x5D0CB479: return "GetDlgItem";
-    case 0xEF64A41E: return "VirtualProtect";
-    case 0xBBAFDF85: return "GetProcAddress";
-    case 0x2729F8BB: return "CreateThread";
-    case 0x12F461BB: return "GetLastError";
-    case 0xCB9765A0: return "Sleep";
-    case 0xDB9DF473: return "SendMessageW";
-    case 0xA3E1DC76: return "GetDlgCtrlID";
-    case 0x3DB19618: return "FindWindowW";
-    case 0x4818F71E: return "FindWindowExW";
-    case 0x0386047E: return "PostMessageW";
-    case 0xCAA94781: return "PostQuitMessage";
-    case 0x1EDE5967: return "VirtualAlloc";
-    default: return nullptr;
-    }
-}
+	typedef struct _LDR_DATA_TABLE_ENTRY_X {
+		LIST_ENTRY InLoadOrderLinks;
+		LIST_ENTRY InMemoryOrderLinks;
+		LIST_ENTRY InInitializationOrderLinks;
+		PVOID DllBase;
+		PVOID EntryPoint;
+		ULONG SizeOfImage;
+		UNICODE_STRING_X FullDllName;
+		UNICODE_STRING_X BaseDllName;
+	} LDR_DATA_TABLE_ENTRY_X;
+
+	typedef struct _PEB_LDR_DATA_X {
+		ULONG Length;
+		BOOLEAN Initialized;
+		PVOID SsHandle;
+		LIST_ENTRY InLoadOrderModuleList;
+	} PEB_LDR_DATA_X;
+
+	typedef struct _PEB_X {
+		BYTE Reserved1[0x0C];
+		PEB_LDR_DATA_X* Ldr;
+	} PEB_X;
+#pragma pack(pop)
+
+	static DWORD RotHashStep(DWORD current, unsigned char ch) {
+		return ((current << 25) | (current >> 7)) + ch;
+	}
+
+	static DWORD HashUnicodeModuleNameLower(const UNICODE_STRING_X* name) {
+		if (!name || !name->Buffer || name->Length == 0) {
+			return 0;
+		}
+
+		DWORD hash = 0;
+		const USHORT count = static_cast<USHORT>(name->Length / sizeof(WCHAR));
+		for (USHORT i = 0; i < count; ++i) {
+			unsigned char ch = static_cast<unsigned char>(name->Buffer[i] & 0xFF);
+			if (ch == 0) {
+				break;
+			}
+			if (ch >= 'A' && ch <= 'Z') {
+				ch = static_cast<unsigned char>(ch + ('a' - 'A'));
+			}
+			hash = RotHashStep(hash, ch);
+		}
+		return hash;
+	}
+
+	static DWORD HashAnsiName(const char* name) {
+		if (!name) {
+			return 0;
+		}
+		DWORD hash = 0;
+		for (const unsigned char* p = reinterpret_cast<const unsigned char*>(name); *p; ++p) {
+			hash = RotHashStep(hash, *p);
+		}
+		return hash;
+	}
 } // namespace
 
 DWORD puGetModule(const DWORD Hash)
 {
-    const char* moduleName = ResolveModuleNameByHash(Hash);
-    if (!moduleName) {
-        return 0;
-    }
-    HMODULE module = GetModuleHandleA(moduleName);
-    if (!module) {
-        module = LoadLibraryA(moduleName);
-    }
-    return static_cast<DWORD>(reinterpret_cast<ULONG_PTR>(module));
+	PEB_X* peb = reinterpret_cast<PEB_X*>(__readfsdword(0x30));
+	if (!peb || !peb->Ldr) {
+		return 0;
+	}
+
+	LIST_ENTRY* head = &peb->Ldr->InLoadOrderModuleList;
+	for (LIST_ENTRY* node = head->Flink; node && node != head; node = node->Flink) {
+		LDR_DATA_TABLE_ENTRY_X* entry =
+			CONTAINING_RECORD(node, LDR_DATA_TABLE_ENTRY_X, InLoadOrderLinks);
+		if (!entry || !entry->DllBase) {
+			continue;
+		}
+		if (HashUnicodeModuleNameLower(&entry->BaseDllName) == Hash) {
+			return static_cast<DWORD>(reinterpret_cast<ULONG_PTR>(entry->DllBase));
+		}
+	}
+	return 0;
 }
 
 DWORD puGetProcAddress(const DWORD dllvalues, const DWORD Hash)
 {
-    const char* functionName = ResolveFunctionNameByHash(Hash);
-    if (!functionName) {
-        return 0;
-    }
+	if (!dllvalues) {
+		return 0;
+	}
 
-    FARPROC proc = nullptr;
-    if (dllvalues) {
-        proc = GetProcAddress((HMODULE)dllvalues, functionName);
-    }
-    if (!proc) {
-        static const char* kFallbackModules[] = {
-            "kernel32.dll",
-            "kernelbase.dll",
-            "user32.dll",
-            "msvcrt.dll"
-        };
-        const size_t fallbackCount = sizeof(kFallbackModules) / sizeof(kFallbackModules[0]);
-        for (size_t i = 0; i < fallbackCount && !proc; ++i) {
-            HMODULE hMod = GetModuleHandleA(kFallbackModules[i]);
-            if (!hMod) {
-                hMod = LoadLibraryA(kFallbackModules[i]);
-            }
-            if (hMod) {
-                proc = GetProcAddress(hMod, functionName);
-            }
-        }
-    }
-    return static_cast<DWORD>(reinterpret_cast<ULONG_PTR>(proc));
+	const BYTE* base = reinterpret_cast<const BYTE*>(dllvalues);
+	const IMAGE_DOS_HEADER* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+	if (!dos || dos->e_magic != IMAGE_DOS_SIGNATURE) {
+		return 0;
+	}
+
+	const IMAGE_NT_HEADERS* nt =
+		reinterpret_cast<const IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
+	if (!nt || nt->Signature != IMAGE_NT_SIGNATURE) {
+		return 0;
+	}
+
+	const IMAGE_DATA_DIRECTORY& expDirEntry =
+		nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
+	if (expDirEntry.VirtualAddress == 0 || expDirEntry.Size == 0) {
+		return 0;
+	}
+
+	const IMAGE_EXPORT_DIRECTORY* expDir =
+		reinterpret_cast<const IMAGE_EXPORT_DIRECTORY*>(base + expDirEntry.VirtualAddress);
+	const DWORD* names = reinterpret_cast<const DWORD*>(base + expDir->AddressOfNames);
+	const WORD* ords = reinterpret_cast<const WORD*>(base + expDir->AddressOfNameOrdinals);
+	const DWORD* funcs = reinterpret_cast<const DWORD*>(base + expDir->AddressOfFunctions);
+
+	for (DWORD i = 0; i < expDir->NumberOfNames; ++i) {
+		const char* name = reinterpret_cast<const char*>(base + names[i]);
+		if (HashAnsiName(name) != Hash) {
+			continue;
+		}
+
+		const WORD ordinalIndex = ords[i];
+		const DWORD fnRva = funcs[ordinalIndex];
+		return static_cast<DWORD>(dllvalues + fnRva);
+	}
+
+	return 0;
 }
 #endif // _WIN32
 
@@ -495,30 +536,9 @@ int CreateWind()
 void WINAPI CombatShellEntry()
 {
 #ifndef _WIN64
-	g_stud.s_Krenel32 = (DWORD64)GetModuleHandleA("kernel32.dll");
-	g_stud.s_User32 = (DWORD64)LoadLibraryA("user32.dll");
-	MyLoadLibraryExA = (FnLoadLibraryExA)LoadLibraryExA;
-	MyGetProcAddress = (FnGetProcAddress)GetProcAddress;
-	MyGetModuleHandleW = (FnGetModuleHandleW)GetModuleHandleW;
-	MyVirtualProtect = (FnVirtualProtect)VirtualProtect;
-	MyVirtualAlloc = (FnVirtualAlloc)VirtualAlloc;
-	UnCompression();
-	RepairTheIAT();
-	__asm {
-		push esi;
-		push eax;
-		mov	 esi, g_stud.s_dwOepBase;
-		xor	 eax, eax;
-		add  eax, 0x200000;
-		add	 eax, 0x200000;
-		add	 eax, 0x200000;
-		sub  eax, 0x200000;
-		add  esi, eax;
-		jmp	 esi;
-		pop eax;
-		pop esi;
-	}
-	return;
+	g_stud.s_Krenel32 = puGetModule(0xEC1C6278);
+	MyLoadLibraryExA = (FnLoadLibraryExA)puGetProcAddress(g_stud.s_Krenel32, 0xC0D83287);
+	g_stud.s_User32 = (DWORD64)MyLoadLibraryExA("user32.dll", NULL, NULL);
 #endif
 	// VM_Start_start
 	// GetLoadlibraryExA
