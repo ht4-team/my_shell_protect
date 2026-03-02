@@ -146,7 +146,6 @@ BOOL CompressionData::CompressSectionData()
 		AfxMessageBox((L"CombatShell LoadLibraryEx Error. " + wsCombatShellPath).c_str());
 		return false;
 	}
-
 	g_stu = (_Stud*)GetProcAddress((HMODULE)m_studBase, "g_stud");
 	g_Vm = (VmNode*)GetProcAddress((HMODULE)m_studBase, "g_VmNode");
 	g_dataHlpers = (char *)GetProcAddress((HMODULE)m_studBase, "g_dataHlper");// g_dataHlper

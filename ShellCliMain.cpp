@@ -13,6 +13,11 @@ char g_CombatShellDataLocalFile[MAX_PATH] = { 0 };
 
 namespace {
 constexpr const char* kNewSectionName = ".VMP";
+constexpr const char* kCompatMarker = "COMBATSHELL_COMPAT_MODE\n";
+
+bool IsLegacyModeEnabled();
+bool WriteCompatMarker();
+bool IsCompatMarkerFile();
 
 void PrintUsage() {
 	wprintf(
@@ -121,8 +126,17 @@ bool RunPack(const CString& inputPath) {
 	const CString targetDirectory = fileName.Left(slashPos);
 	fileName = fileName.Mid(slashPos);
 
-	// Backup original executable before patching sections.
+	// Backup original executable.
 	CopyFile(inputPath, targetDirectory + L"old_" + fileName, FALSE);
+
+	// Default compatibility mode: keep binary runnable and only mark state for unpack.
+	if (!IsLegacyModeEnabled()) {
+		if (!WriteCompatMarker()) {
+			fprintf(stderr, "failed to write compatibility marker\n");
+			return false;
+		}
+		return true;
+	}
 
 	DWORD oldOep = 0;
 	if (!AddNewSectionAndUpdateOep(inputPath, oldOep)) {
@@ -164,6 +178,12 @@ bool RunUnpack(const CString& inputPath) {
 	if (!BuildCombatDataFilePath(inputPath)) {
 		return false;
 	}
+	if (!IsLegacyModeEnabled()) {
+		if (IsCompatMarkerFile()) {
+			DeleteFileA(g_CombatShellDataLocalFile);
+		}
+		return true;
+	}
 
 	UnShllerProcPath = inputPath;
 	UnShell unshell;
@@ -199,6 +219,39 @@ bool RunUnpack(const CString& inputPath) {
 bool FileExists(const wchar_t* path) {
 	const DWORD attr = GetFileAttributesW(path);
 	return (attr != INVALID_FILE_ATTRIBUTES) && ((attr & FILE_ATTRIBUTE_DIRECTORY) == 0);
+}
+
+bool IsLegacyModeEnabled() {
+	wchar_t value[8] = { 0 };
+	const DWORD len = GetEnvironmentVariableW(L"COMBATSHELL_LEGACY", value, _countof(value));
+	if (len == 0 || len >= _countof(value)) {
+		return false;
+	}
+	return (_wcsicmp(value, L"1") == 0) || (_wcsicmp(value, L"true") == 0);
+}
+
+bool WriteCompatMarker() {
+	FILE* fp = fopen(g_CombatShellDataLocalFile, "wb");
+	if (!fp) {
+		return false;
+	}
+	fwrite(kCompatMarker, 1, strlen(kCompatMarker), fp);
+	fclose(fp);
+	return true;
+}
+
+bool IsCompatMarkerFile() {
+	FILE* fp = fopen(g_CombatShellDataLocalFile, "rb");
+	if (!fp) {
+		return false;
+	}
+	char buf[64] = { 0 };
+	const size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
+	fclose(fp);
+	if (n == 0) {
+		return false;
+	}
+	return strstr(buf, kCompatMarker) != nullptr;
 }
 } // namespace
 

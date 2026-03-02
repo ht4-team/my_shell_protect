@@ -8,6 +8,8 @@
 #define NEWSECITONNAME ".VMP"
 
 extern _Stud*	g_stu;
+extern _VmNode* g_Vm;
+extern char*	g_dataHlpers;
 extern char		g_CombatShellDataLocalFile[MAX_PATH];
 
 studData::studData()
@@ -73,11 +75,39 @@ BOOL studData::LoadLibraryStud()
 		AfxMessageBox((L"CombatShell LoadLibraryEx Error. " + wsCombatShellPath).c_str());
 		return false;
 	}
+	_Stud* studSrc = g_stu;
+	_VmNode* vmSrc = g_Vm;
+	char* helperSrc = g_dataHlpers;
+
+	_Stud* studDst = (_Stud*)GetProcAddress((HMODULE)m_studBase, "g_stud");
+	_VmNode* vmDst = (VmNode*)GetProcAddress((HMODULE)m_studBase, "g_VmNode");
+	char* helperDst = (char*)GetProcAddress((HMODULE)m_studBase, "g_dataHlper");
+	if (studSrc && studDst) {
+		memcpy(studDst, studSrc, sizeof(_Stud));
+	}
+	if (vmSrc && vmDst) {
+		memcpy(vmDst, vmSrc, sizeof(_VmNode));
+	}
+	if (helperSrc && helperDst) {
+		memcpy(helperDst, helperSrc, 0x2048);
+	}
+	if (studDst) {
+		g_stu = studDst;
+	}
+	if (vmDst) {
+		g_Vm = vmDst;
+	}
+	if (helperDst) {
+		g_dataHlpers = helperDst;
+	}
 	// 获取dll的导出函数
 #ifdef _WIN64
 	dexportAddress = GetProcAddress((HMODULE)m_studBase, "VmEntry");
 #else
 	dexportAddress = GetProcAddress((HMODULE)m_studBase, "CombatShellEntry");
+	if (!dexportAddress) {
+		dexportAddress = GetProcAddress((HMODULE)m_studBase, "_CombatShellEntry@0");
+	}
 #endif
 	// ImageBase
 #ifdef _WIN64
