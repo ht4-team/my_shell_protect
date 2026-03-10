@@ -21,6 +21,7 @@ bool IsCompatMarkerFile();
 bool WriteTrampolineShell(const CString& path, DWORD oldOep);
 bool FileExists(const wchar_t* path);
 WORD GetTargetMachine(const CString& path);
+bool FixPeChecksum(const CString& path);
 
 void PrintUsage() {
 	wprintf(
@@ -185,6 +186,13 @@ bool RunLegacyPackCore(const CString& inputPath, const CString& targetDirectory)
 		return false;
 	}
 	DeleteFile(compressionMask);
+
+	fprintf(stderr, "[legacy] step=fix-checksum\n");
+	fflush(stderr);
+	if (!FixPeChecksum(inputPath)) {
+		fprintf(stderr, "warning: fix checksum failed (packed file may still work)\n");
+		fflush(stderr);
+	}
 	return true;
 }
 
@@ -401,6 +409,84 @@ bool WriteTrampolineShell(const CString& path, DWORD oldOep) {
 		nullptr);
 	SinglePuPEInfo::instance()->puClearPeData();
 	return ok == TRUE;
+}
+
+bool FixPeChecksum(const CString& path) {
+	HANDLE hFile = CreateFileW(
+		path, GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+		OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if (hFile == INVALID_HANDLE_VALUE) {
+		return false;
+	}
+
+	DWORD fileSize = GetFileSize(hFile, nullptr);
+	if (fileSize == INVALID_FILE_SIZE || fileSize < 0x80) {
+		CloseHandle(hFile);
+		return false;
+	}
+
+	HANDLE hMap = CreateFileMappingW(hFile, nullptr, PAGE_READWRITE, 0, 0, nullptr);
+	if (!hMap) {
+		CloseHandle(hFile);
+		return false;
+	}
+
+	BYTE* base = (BYTE*)MapViewOfFile(hMap, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, 0);
+	if (!base) {
+		CloseHandle(hMap);
+		CloseHandle(hFile);
+		return false;
+	}
+
+	PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)base;
+	if (dos->e_magic != IMAGE_DOS_SIGNATURE) {
+		UnmapViewOfFile(base);
+		CloseHandle(hMap);
+		CloseHandle(hFile);
+		return false;
+	}
+
+	PIMAGE_NT_HEADERS nt = (PIMAGE_NT_HEADERS)(base + dos->e_lfanew);
+	if (nt->Signature != IMAGE_NT_SIGNATURE) {
+		UnmapViewOfFile(base);
+		CloseHandle(hMap);
+		CloseHandle(hFile);
+		return false;
+	}
+
+	// Clear the Authenticode signature directory entry — modifying
+	// a signed PE invalidates the signature, and a stale entry can
+	// make the loader reject the file outright.
+	if (nt->OptionalHeader.NumberOfRvaAndSizes > IMAGE_DIRECTORY_ENTRY_SECURITY) {
+		nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_SECURITY].VirtualAddress = 0;
+		nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_SECURITY].Size = 0;
+	}
+
+	// Zero the existing checksum before computing the new one.
+	DWORD* pCheckSum = &nt->OptionalHeader.CheckSum;
+	*pCheckSum = 0;
+
+	// Standard PE checksum: sum all WORDs with carry folding, then add file size.
+	ULONGLONG sum = 0;
+	const DWORD wordCount = fileSize / 2;
+	const WORD* words = (const WORD*)base;
+	for (DWORD i = 0; i < wordCount; ++i) {
+		sum += words[i];
+		sum = (sum & 0xFFFF) + (sum >> 16);
+	}
+	if (fileSize & 1) {
+		sum += base[fileSize - 1];
+		sum = (sum & 0xFFFF) + (sum >> 16);
+	}
+	sum = (sum & 0xFFFF) + (sum >> 16);
+	*pCheckSum = (DWORD)(sum + fileSize);
+
+	fprintf(stderr, "[legacy] checksum=0x%08X\n", *pCheckSum);
+
+	UnmapViewOfFile(base);
+	CloseHandle(hMap);
+	CloseHandle(hFile);
+	return true;
 }
 } // namespace
 
