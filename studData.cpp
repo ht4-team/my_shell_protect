@@ -102,7 +102,10 @@ BOOL studData::LoadLibraryStud()
 	}
 	// 获取dll的导出函数
 #ifdef _WIN64
-	dexportAddress = GetProcAddress((HMODULE)m_studBase, "VmEntry");
+	dexportAddress = GetProcAddress((HMODULE)m_studBase, "CombatShellEntry");
+	if (!dexportAddress) {
+		dexportAddress = GetProcAddress((HMODULE)m_studBase, "VmEntry");
+	}
 #else
 	dexportAddress = GetProcAddress((HMODULE)m_studBase, "CombatShellEntry");
 	if (!dexportAddress) {
@@ -215,6 +218,82 @@ BOOL studData::CopyStud()
 	pNt->OptionalHeader.AddressOfEntryPoint = (DWORD)dexportAddress - (DWORD)m_studBase - studSection->VirtualAddress + SurceBase->VirtualAddress;
 #endif
 
+	// The packer creates sections with PointerToRawData aligned to 0x200, but
+	// the original PE might declare FileAlignment = 0x1000.  The PE loader
+	// rejects sections whose PTRD is not a multiple of FileAlignment, which
+	// silently breaks import resolution and section mapping.  Force 0x200 so
+	// the packed layout is valid.
+	if (pNt->OptionalHeader.FileAlignment > 0x200) {
+		pNt->OptionalHeader.FileAlignment = 0x200;
+	}
+
+	// Also fix SizeOfHeaders: the original value (e.g. 0x1000) can overlap
+	// with the first section data (PTRD=0x400).  Re-derive from the actual
+	// header + section-table size, aligned to the new FileAlignment.
+	{
+		DWORD hdrsEnd = (DWORD)(
+			((PIMAGE_DOS_HEADER)m_lpBase)->e_lfanew + 24 +
+			pNt->FileHeader.SizeOfOptionalHeader +
+			pNt->FileHeader.NumberOfSections * sizeof(IMAGE_SECTION_HEADER));
+		DWORD fa = pNt->OptionalHeader.FileAlignment;
+		DWORD newSoh = (hdrsEnd + fa - 1) & ~(fa - 1);
+		if (newSoh < pNt->OptionalHeader.SizeOfHeaders) {
+			pNt->OptionalHeader.SizeOfHeaders = newSoh;
+		}
+	}
+
+	// Write a minimal Import Table into spare .VMP space so the Windows
+	// loader loads kernel32.dll.  The IAT must be in a writable section
+	// (the loader writes resolved addresses into it), so we place the
+	// entire mini-import-table inside .VMP which has RWX characteristics.
+	{
+		DWORD shellSize = studSection->Misc.VirtualSize;
+		DWORD importOff = (shellSize + 15) & ~15;  // align to 16
+		DWORD vmpVA  = SurceBase->VirtualAddress;
+		DWORD importRva = vmpVA + importOff;
+
+#ifdef _WIN64
+		const DWORD ptrSize = 8;
+#else
+		const DWORD ptrSize = 4;
+#endif
+		const DWORD totalNeeded = 56 + 4 * ptrSize + 14;
+
+		if (importOff + totalNeeded <= SurceBase->SizeOfRawData) {
+			BYTE* base = (BYTE*)m_lpBase + SurceBase->PointerToRawData + importOff;
+			memset(base, 0, totalNeeded);
+
+			const DWORD nameRva = importRva + 40;
+			const DWORD intRva  = importRva + 56;
+			const DWORD iatRva  = importRva + 56 + 2 * ptrSize;
+			const DWORD hintRva = importRva + 56 + 4 * ptrSize;
+
+			PIMAGE_IMPORT_DESCRIPTOR pDesc = (PIMAGE_IMPORT_DESCRIPTOR)base;
+			pDesc->OriginalFirstThunk = intRva;
+			pDesc->TimeDateStamp      = 0;
+			pDesc->ForwarderChain     = (DWORD)-1;
+			pDesc->Name               = nameRva;
+			pDesc->FirstThunk         = iatRva;
+
+			memcpy(base + 40, "kernel32.dll", 13);
+
+#ifdef _WIN64
+			*(ULONGLONG*)(base + 56)                = (ULONGLONG)hintRva;
+			*(ULONGLONG*)(base + 56 + 2 * ptrSize)  = (ULONGLONG)hintRva;
+#else
+			*(DWORD*)(base + 56)                    = hintRva;
+			*(DWORD*)(base + 56 + 2 * ptrSize)      = hintRva;
+#endif
+			*(WORD*)(base + 56 + 4 * ptrSize) = 0;
+			memcpy(base + 56 + 4 * ptrSize + 2, "ExitProcess", 12);
+
+			pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress = importRva;
+			pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].Size = 40;
+			pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IAT].VirtualAddress = iatRva;
+			pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IAT].Size = 2 * ptrSize;
+		}
+	}
+
 	HANDLE hFile = SinglePuPEInfo::instance()->puFileHandle();
 	if (!hFile || hFile == INVALID_HANDLE_VALUE)
 		return FALSE;
@@ -224,6 +303,17 @@ BOOL studData::CopyStud()
 	int nRet = WriteFile(hFile, SinglePuPEInfo::instance()->puGetImageBase(), SinglePuPEInfo::instance()->puFileSize(), &dwRiteFile, NULL);
 	if (!nRet || dwRiteFile != SinglePuPEInfo::instance()->puFileSize())
 		return FALSE;
+
+	// Ensure the file covers the full .VMP section (SizeOfRawData may be
+	// larger than the data actually present due to FileAlignment rounding).
+	// Without this, the PE loader may reject the import table we placed
+	// at the end of .VMP because the file is truncated.
+	DWORD expectedEnd = SurceBase->PointerToRawData + SurceBase->SizeOfRawData;
+	if (expectedEnd > dwRiteFile) {
+		SetFilePointer(hFile, expectedEnd, nullptr, FILE_BEGIN);
+		SetEndOfFile(hFile);
+	}
+
 	return TRUE;
 }
 

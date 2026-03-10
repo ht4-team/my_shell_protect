@@ -137,36 +137,51 @@ bool RunCompatPack(const CString& inputPath) {
 }
 
 bool RunLegacyPackCore(const CString& inputPath, const CString& targetDirectory) {
+	fprintf(stderr, "[legacy] step=add-section\n");
+	fflush(stderr);
 	DWORD oldOep = 0;
 	if (!AddNewSectionAndUpdateOep(inputPath, oldOep)) {
 		fprintf(stderr, "add section failed\n");
+		fflush(stderr);
 		return false;
 	}
 
+	fprintf(stderr, "[legacy] step=compress\n");
+	fflush(stderr);
 	CompressionData compressor;
 	compressor.puInit(inputPath);
 	if (!compressor.puCompressSection()) {
 		fprintf(stderr, "compress section failed\n");
+		fflush(stderr);
 		return false;
 	}
 
+	fprintf(stderr, "[legacy] step=stud-init\n");
+	fflush(stderr);
 	CString compressionMask = targetDirectory + L"CompressionMask.exe";
 	if (!SingleStudData::instance()->puInit(compressionMask, oldOep)) {
 		fprintf(stderr, "stud init failed\n");
+		fflush(stderr);
 		return false;
 	}
+	fprintf(stderr, "[legacy] step=stud-copy\n");
+	fflush(stderr);
 	SingleStudData::instance()->puLoadLibraryStud();
 	SingleStudData::instance()->puRepairReloCationStud();
 	const bool copyOk = SingleStudData::instance()->puCopyStud() == TRUE;
 	SingleStudData::instance()->puClearStuData();
 	if (!copyOk) {
 		fprintf(stderr, "copy shell payload failed\n");
+		fflush(stderr);
 		return false;
 	}
 
+	fprintf(stderr, "[legacy] step=finalize\n");
+	fflush(stderr);
 	DeleteFile(inputPath);
 	if (!CopyFile(compressionMask, inputPath, FALSE)) {
 		fprintf(stderr, "replace target failed\n");
+		fflush(stderr);
 		return false;
 	}
 	DeleteFile(compressionMask);
@@ -215,14 +230,13 @@ bool RunPack(const CString& inputPath) {
 		return true;
 	}
 
-	// x86 legacy flow is known unstable in some samples: restore and fallback.
-	if (GetTargetMachine(inputPath) == IMAGE_FILE_MACHINE_I386) {
-		if (FileExists(backupPath)) {
-			DeleteFile(inputPath);
-			CopyFile(backupPath, inputPath, FALSE);
-		}
-		return RunCompatPack(inputPath);
+	// Do not auto-switch to trampoline mode after legacy failure.
+	// Restore original file and report failure instead.
+	if (FileExists(backupPath)) {
+		DeleteFile(inputPath);
+		CopyFile(backupPath, inputPath, FALSE);
 	}
+	fprintf(stderr, "legacy pack failed\n");
 	return false;
 }
 

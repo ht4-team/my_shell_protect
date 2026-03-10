@@ -1,6 +1,8 @@
 param(
     [string]$Platform = "Win32",
-    [string]$Configuration = "Release"
+    [string]$Configuration = "Release",
+    [string]$CalcPath = "",
+    [switch]$CalcMustStayRunning
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,17 +41,39 @@ function Assert-ProgramOutput {
     }
 }
 
-function Assert-CalcLaunch {
+function Test-ProcessLiveness {
     param([Parameter(Mandatory = $true)][string]$Path)
+
     $proc = Start-Process -FilePath $Path -PassThru
     Start-Sleep -Seconds 2
+    $alive = -not $proc.HasExited
+    $exitCode = $null
     if ($proc.HasExited) {
-        if ($proc.ExitCode -ne 0) {
-            throw "calc exited with non-zero code: $Path (exit=$($proc.ExitCode))"
+        $exitCode = $proc.ExitCode
+    } else {
+        Stop-Process -Id $proc.Id -Force
+    }
+    return [PSCustomObject]@{
+        Alive = $alive
+        ExitCode = $exitCode
+    }
+}
+
+function Assert-CalcLaunch {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][bool]$RequireAlive
+    )
+    $state = Test-ProcessLiveness $Path
+    if ($RequireAlive) {
+        if (-not $state.Alive) {
+            throw "calc process is not alive after launch: $Path (exit=$($state.ExitCode))"
         }
         return
     }
-    Stop-Process -Id $proc.Id -Force
+    if (($null -ne $state.ExitCode) -and ($state.ExitCode -ne 0)) {
+        throw "calc exited with non-zero code: $Path (exit=$($state.ExitCode))"
+    }
 }
 
 function Stop-ProcessByPath {
@@ -89,9 +113,7 @@ $msbuild = Resolve-MSBuildPath
 Write-Host "Using MSBuild: $msbuild"
 & $msbuild .\CombatShell\CombatShell.vcxproj /m /p:Configuration=$Configuration /p:Platform=$Platform
 & $msbuild .\CombatShellCli.vcxproj /m /p:Configuration=$Configuration /p:Platform=$Platform
-if ($Platform -eq "Win32") {
-    & $msbuild .\examples\MiniTarget.vcxproj /m /p:Configuration=$Configuration /p:Platform=$Platform
-}
+& $msbuild .\examples\MiniTarget.vcxproj /m /p:Configuration=$Configuration /p:Platform=$Platform
 
 $binDir = if ($Platform -eq "x64") { "bin\\x64" } else { "bin" }
 if (!(Test-Path $binDir)) {
@@ -99,13 +121,20 @@ if (!(Test-Path $binDir)) {
 }
 
 Write-Host "[2/4] Prepare test workspace"
-$sampleDir = "test\\samples"
+$sampleDir = "test\\samples_$Platform"
 New-Item -ItemType Directory -Force -Path $sampleDir | Out-Null
 
-if (Test-Path "examples\\calc.exe") {
+if ($CalcPath) {
+    if (!(Test-Path $CalcPath)) {
+        throw "CalcPath not found: $CalcPath"
+    }
+    Copy-Item $CalcPath "$sampleDir\\calc.exe" -Force
+} elseif (Test-Path "examples\\calc.exe") {
     Copy-Item "examples\\calc.exe" "$sampleDir\\calc.exe" -Force
-} else {
+} elseif (Test-Path "$binDir\\MiniTarget.exe") {
     Copy-Item "$binDir\\MiniTarget.exe" "$sampleDir\\calc.exe" -Force
+} else {
+    throw "No calc sample available. Pass -CalcPath explicitly."
 }
 if (Test-Path "$binDir\\MiniTarget.exe") {
     Copy-Item "$binDir\\MiniTarget.exe" "$sampleDir\\mini_target.exe" -Force
@@ -124,9 +153,27 @@ if (-not $runCalcTest) {
 Push-Location $sampleDir
 try {
     Write-Host "[3/4] Baseline checks"
+    $calcRequireAlive = $false
     if ($runCalcTest) {
-        Assert-CalcLaunch ".\\calc.exe"
+        $calcState = Test-ProcessLiveness ".\\calc.exe"
+        if ($CalcMustStayRunning.IsPresent) {
+            if (-not $calcState.Alive) {
+                throw "calc baseline is not alive; cannot satisfy -CalcMustStayRunning for .\\calc.exe"
+            }
+            $calcRequireAlive = $true
+        } else {
+            $calcRequireAlive = $calcState.Alive
+        }
+        if ($calcRequireAlive) {
+            Write-Host "calc check mode: require process alive"
+        } else {
+            Write-Host "calc check mode: allow quick-exit (baseline behavior)"
+            if (($null -ne $calcState.ExitCode) -and ($calcState.ExitCode -ne 0)) {
+                throw "calc baseline failed: .\\calc.exe (exit=$($calcState.ExitCode))"
+            }
+        }
     }
+
     $runMiniTarget = $false
     if (Test-Path ".\\mini_target.exe") {
         $miniMachine = Get-PeMachine (Resolve-Path ".\\mini_target.exe").Path
@@ -143,10 +190,10 @@ try {
     if ($runCalcTest) {
         .\CombatShellCli.exe pack .\calc.exe
         if ($LASTEXITCODE -ne 0) { throw "pack calc failed with $LASTEXITCODE" }
-        Assert-CalcLaunch ".\\calc.exe"
+        Assert-CalcLaunch ".\\calc.exe" $calcRequireAlive
         .\CombatShellCli.exe unpack .\calc.exe
         if ($LASTEXITCODE -ne 0) { throw "unpack calc failed with $LASTEXITCODE" }
-        Assert-CalcLaunch ".\\calc.exe"
+        Assert-CalcLaunch ".\\calc.exe" $calcRequireAlive
     }
 
     if ($runMiniTarget) {

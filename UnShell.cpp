@@ -150,6 +150,11 @@ BOOL UnShell::RepCompressionData()
 
 	int nFlag = 0;
 	DWORD Address = address->PointerToRawData;
+#ifdef _WIN64
+	qlz_state_decompress* state_decompress = (qlz_state_decompress*)VirtualAlloc(NULL, sizeof(qlz_state_decompress), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+	if (!state_decompress)
+		return false;
+#endif
 	for (DWORD i = 0; i < dwSectionCount - 2; ++i)
 	{
 		if (g_stu->s_blen[nFlag] == 0)
@@ -158,12 +163,17 @@ BOOL UnShell::RepCompressionData()
 			continue;
 		}
 #ifdef _WIN64
-		qlz_state_decompress *state_decompress = (qlz_state_decompress *)VirtualAlloc(NULL, sizeof(qlz_state_decompress), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-		int nRet = qlz_decompress((char*)(Address + (DWORD64)m_Base), &m_pSectionData[Flag], state_decompress);
+		memset(state_decompress, 0, sizeof(qlz_state_decompress));
+		int nRet = (int)qlz_decompress(
+			(char*)(Address + (DWORD64)m_Base),
+			&m_pSectionData[Flag],
+			state_decompress);
 #else
 		// 缓冲区  RVA+加载基址  缓冲区大小  压缩过去的大小
 		int nRet = LZ4_decompress_safe((char*)(Address + (DWORD)m_Base), &m_pSectionData[Flag], g_stu->s_blen[nFlag], g_stu->s_SectionOffsetAndSize[i][0]);
 #endif
+		if (nRet <= 0)
+			return false;
 		Address += g_stu->s_blen[i];
 		Flag += g_stu->s_SectionOffsetAndSize[i][0];
 		nFlag++;

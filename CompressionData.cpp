@@ -55,6 +55,16 @@ VOID CompressionData::ReFileInit()
 // 压缩区段之前 Vmencode
 void CompressionData::VmcodeEntry(char* TargetCode, _Out_ int &CodeLength)
 {
+#ifdef _WIN64
+	// x64 VM flow is unstable for some real-world GUI samples (e.g. calc launcher).
+	// Keep shelling/compression path and skip VM instrumentation to guarantee OEP transfer.
+	g_Vm->VmCount = 0;
+	g_Vm->VmAddroffset = 0;
+	g_Vm->Vmencodeasmlen = 0;
+	g_Vm->Hlperdataoffset = 0;
+	return;
+#endif
+
 	// 这里写入需要加密多少次,或者代码段Asm
 	int vm_len = 1;
 	// write: 0. 写入一共VM加密多少代码段
@@ -201,7 +211,8 @@ BOOL CompressionData::CompressSectionData()
 		return false;
 	}
 	// 不压缩新增的区段（加壳区段）
-	for (DWORD i = 0; i < dSectionCount - 2; ++i)
+	// At this point only .VMP was added (not .UPX yet), so subtract 1.
+	for (DWORD i = 0; i < dSectionCount - 1; ++i)
 	{
 		DWORD DataSize = pSections->SizeOfRawData;
 		if (pSections->SizeOfRawData == 0)
@@ -215,24 +226,29 @@ BOOL CompressionData::CompressSectionData()
 
 		char* buf = NULL;
 		void* DataAddress = (void *)(pSections->PointerToRawData + (DWORD64)m_lpBase);
+		DWORD dwCompressionSize = 0;
 #ifdef _WIN64
-		qlz_state_compress *state_compress = (qlz_state_compress *)malloc(sizeof(qlz_state_compress));
+		qlz_state_compress* state_compress = (qlz_state_compress*)malloc(sizeof(qlz_state_compress));
+		if (!state_compress) {
+			AfxMessageBox(L"no enough memory!\n");
+			return -1;
+		}
+		memset(state_compress, 0, sizeof(qlz_state_compress));
 
-		// 计算安全缓冲区
-		//const int blen = LZ4_compressBound(pSections->SizeOfRawData + 1);
-
-		const int blen = pSections->SizeOfRawData + 400;
+		// Keep a generous safety margin to avoid overwrite on incompressible data.
+		const int blen = (int)(pSections->SizeOfRawData * 2) + 1024;
 
 		// 安全空间申请
 		if ((buf = (char*)malloc(sizeof(char) * blen)) == NULL)
 		{
+			free(state_compress);
 			AfxMessageBox(L"no enough memory!\n");
 			return -1;
 		}
 
 		/* 压缩 */
-		// const int dwCompressionSize = LZ4_compress_default((char*)DataAddress, buf, pSections->SizeOfRawData, blen);
-		const int dwCompressionSize = qlz_compress((char*)DataAddress, buf, blen, state_compress);
+		dwCompressionSize = (DWORD)qlz_compress((char*)DataAddress, buf, pSections->SizeOfRawData, state_compress);
+		free(state_compress);
 #else 
 		DWORD blen;
 
@@ -246,12 +262,18 @@ BOOL CompressionData::CompressSectionData()
 			return -1;
 		}
 
-		DWORD dwCompressionSize = 0;
-
 		/* 压缩 */
 		dwCompressionSize = LZ4_compress_default((char*)DataAddress, buf, pSections->SizeOfRawData, blen);
 
 #endif
+		if (dwCompressionSize == 0) {
+			if (buf) {
+				free(buf);
+				buf = nullptr;
+			}
+			AfxMessageBox(L"section compression failed.");
+			return false;
+		}
 		fwrite(&dwCompressionSize, sizeof(DWORD), 1, fpFile);
 		fflush(fpFile);
 
@@ -296,6 +318,15 @@ BOOL CompressionData::CompressSectionData()
 
 	// 重载文件 - 修改新区段的信息数据 文件偏移 0x400  大小 压缩后数据对齐大小
 	ReFileInit();
+
+	// Re-query m_maskAddress: ReFileInit() freed the old PE allocation and created
+	// a new one, so the pointer captured at line 182 is now dangling.
+	m_maskAddress = SinglePuPEInfo::instance()->puGetSectionAddress((char*)m_lpBase, (BYTE*)NEWSECITONNAME);
+	if (!m_maskAddress) {
+		free(SaveCompressData);
+		return false;
+	}
+
 	BYTE byteName[] = ".UPX";
 	SinglePuPEInfo::instance()->puSetFileoffsetAndFileSize(m_lpBase, 0x400, ModifySize, byteName);
 	BYTE byteNmase[] = ".UPX";

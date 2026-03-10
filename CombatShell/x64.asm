@@ -1,5 +1,40 @@
 .code
+EXTERN LZ4_decompress_safe:PROC
+EXTERN CombatShellEntryImpl:PROC
     start:
+;--------------------------------------------------------
+CombatShellEntry PROC EXPORT
+	; Save original entry register arguments.
+	push	rcx
+	push	rdx
+	push	r8
+	push	r9
+
+	; Call C implementation with standard x64 shadow space.
+	sub		rsp, 28h
+	mov		rcx, qword ptr [rsp + 40h]
+	mov		rdx, qword ptr [rsp + 38h]
+	mov		r8, qword ptr [rsp + 30h]
+	mov		r9, qword ptr [rsp + 28h]
+	call	CombatShellEntryImpl
+	add		rsp, 28h
+
+	test	rax, rax
+	jz		_CombatShellEntryRet
+
+	; Restore original entry args and transfer directly to OEP.
+	mov		rcx, qword ptr [rsp + 18h]
+	mov		rdx, qword ptr [rsp + 10h]
+	mov		r8, qword ptr [rsp + 08h]
+	mov		r9, qword ptr [rsp + 00h]
+	add		rsp, 20h
+	jmp		rax
+
+_CombatShellEntryRet:
+	add		rsp, 20h
+	ret
+CombatShellEntry ENDP
+
 ;--------------------------------------------------------
 puGetModule PROC EXPORT
     mov rdi, rdi
@@ -351,46 +386,33 @@ __end:
 puGetProcAddress ENDP
 
 ;
-; rcx = g_stud.s_dwOepBase  
+; rcx = absolute OEP address
+; rdx/r8/r9 = original entry arg1/arg2/arg3
+; [rsp+28h] = original entry arg4
 ;
 CodeExecEntry	PROC
-	mov		rdi, rdi
-	push	rbp
-	push	rdi
-	push	rsi
-	push	rax
-	mov		rsi, rcx			; get OepBase
-	mov		rbp, rsp
-	sub		rsp, 38h
-	mov		eax, 00h
-	mov		rcx, 7
-	mov		rdi, rsp
-	rep stos	qword ptr [rdi]
-
-
-
-	xor		rax, rax			; OEP + ImageBase = code.exec.entry
-	add		rax, 20000000h		; 0x140000000 
-	add		rax, 20000000h		
-	add		rax, 20000000h
-	add		rax, 20000000h
-	add		rax, 20000000h
-	add		rax, 20000000h
-	add		rax, 20000000h
-	add		rax, 20000000h
-	add		rax, 20000000h
-	add		rax, 20000000h
-	add		rsi, rax
-	call	rsi
-
-
-	mov		rsp, rbp
-	pop		rax
-	pop		rsi
-	pop		rdi
-	pop		rbp
-	ret
+	mov		r10, rcx
+	mov		rcx, rdx
+	mov		rdx, r8
+	mov		r8, r9
+	mov		r9, qword ptr [rsp + 28h]
+	jmp		r10
 CodeExecEntry	ENDP
+
+;
+; rcx = src, rdx = dst, r8d = compressed size, r9d = dst capacity
+; Ensure stack is aligned for the C LZ4 routine even if process entry stack is non-standard.
+;
+Lz4DecompressSafeAligned PROC
+	mov		r11, rsp
+	and		r11, 0Fh
+	sub		rsp, 20h
+	sub		rsp, r11
+	call	LZ4_decompress_safe
+	add		rsp, r11
+	add		rsp, 20h
+	ret
+Lz4DecompressSafeAligned ENDP
 
 ;--------------------------------------------------------
 ;	VmCode Exec Handler

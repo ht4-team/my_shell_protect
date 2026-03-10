@@ -272,7 +272,8 @@ extern "C" {
 	//==============================================================================
 	void __stdcall puGetModule(const DWORD Hash, DWORD64* address);
 	PVOID64 __stdcall puGetProcAddress(const DWORD64 modules, DWORD Hash);
-	void __stdcall CodeExecEntry(DWORD64 oep);
+	void __stdcall CodeExecEntry(DWORD64 oep, DWORD64 arg1, DWORD64 arg2, DWORD64 arg3, DWORD64 arg4);
+	int __stdcall Lz4DecompressSafeAligned(const char* src, char* dst, int compressedSize, int dstCapacity);
 	//==============================================================================
 	//    VmCode Exec Handler
 	//==============================================================================

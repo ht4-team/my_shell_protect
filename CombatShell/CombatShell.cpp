@@ -21,6 +21,10 @@ static TCHAR szWindowClass[] = TEXT("CombatShellWnd");
 // DLL_ImageBase
 #ifdef _WIN64
 DWORD64 m_Dlllpbase = 0x140000000;
+DWORD64 g_EntryArg1 = 0;
+DWORD64 g_EntryArg2 = 0;
+DWORD64 g_EntryArg3 = 0;
+DWORD64 g_EntryArg4 = 0;
 #else
 DWORD m_Dlllpbase = 0x400000;
 #endif
@@ -34,7 +38,11 @@ extern "C" {
 	DllExport Stud g_stud = { 0, };
 	DllExport VmNode g_VmNode = { 0, };
 	DllExport char g_dataHlper[0x2048] = { 0, };
+#ifdef _WIN64
+	DllExport void WINAPI CombatShellEntry(void* entryArg1, void* entryArg2, void* entryArg3, void* entryArg4);
+#else
 	DllExport void WINAPI CombatShellEntry();
+#endif
 #ifdef _WIN64
 	DllExport void WINAPI VmEntry();
 #endif
@@ -86,7 +94,6 @@ FnGetProcAddress MyGetProcAddress = nullptr;
 // x32 resolver
 #ifndef _WIN64
 namespace {
-#pragma pack(push, 1)
 	typedef struct _UNICODE_STRING_X {
 		USHORT Length;
 		USHORT MaximumLength;
@@ -115,7 +122,6 @@ namespace {
 		BYTE Reserved1[0x0C];
 		PEB_LDR_DATA_X* Ldr;
 	} PEB_X;
-#pragma pack(pop)
 
 	static DWORD RotHashStep(DWORD current, unsigned char ch) {
 		return ((current << 25) | (current >> 7)) + ch;
@@ -219,6 +225,121 @@ DWORD puGetProcAddress(const DWORD dllvalues, const DWORD Hash)
 }
 #endif // _WIN32
 
+#ifdef _WIN64
+namespace {
+	typedef struct _UNICODE_STRING_X64 {
+		USHORT Length;
+		USHORT MaximumLength;
+		PWSTR Buffer;
+	} UNICODE_STRING_X64;
+
+	typedef struct _LDR_DATA_TABLE_ENTRY_X64 {
+		LIST_ENTRY InLoadOrderLinks;
+		LIST_ENTRY InMemoryOrderLinks;
+		LIST_ENTRY InInitializationOrderLinks;
+		PVOID DllBase;
+		PVOID EntryPoint;
+		ULONG SizeOfImage;
+		UNICODE_STRING_X64 FullDllName;
+		UNICODE_STRING_X64 BaseDllName;
+	} LDR_DATA_TABLE_ENTRY_X64;
+
+	typedef struct _PEB_LDR_DATA_X64 {
+		ULONG Length;
+		BOOLEAN Initialized;
+		BYTE Reserved1[3];
+		PVOID SsHandle;
+		LIST_ENTRY InLoadOrderModuleList;
+		LIST_ENTRY InMemoryOrderModuleList;
+		LIST_ENTRY InInitializationOrderModuleList;
+	} PEB_LDR_DATA_X64;
+
+	typedef struct _PEB_X64 {
+		BYTE Reserved1[0x18];
+		PEB_LDR_DATA_X64* Ldr;
+	} PEB_X64;
+
+	static bool EqualsKernel32Lower(const UNICODE_STRING_X64* name) {
+		static const char kKernel32[] = "kernel32.dll";
+		if (!name || !name->Buffer) {
+			return false;
+		}
+		const USHORT count = (USHORT)(name->Length / sizeof(WCHAR));
+		if (count != (USHORT)(sizeof(kKernel32) - 1)) {
+			return false;
+		}
+		for (USHORT i = 0; i < count; ++i) {
+			char ch = (char)(name->Buffer[i] & 0xFF);
+			if (ch >= 'A' && ch <= 'Z') {
+				ch = (char)(ch - 'A' + 'a');
+			}
+			if (ch != kKernel32[i]) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	static bool EqualsNtdllLower(const UNICODE_STRING_X64* name) {
+		static const char kNtdll[] = "ntdll.dll";
+		if (!name || !name->Buffer) {
+			return false;
+		}
+		const USHORT count = (USHORT)(name->Length / sizeof(WCHAR));
+		if (count != (USHORT)(sizeof(kNtdll) - 1)) {
+			return false;
+		}
+		for (USHORT i = 0; i < count; ++i) {
+			char ch = (char)(name->Buffer[i] & 0xFF);
+			if (ch >= 'A' && ch <= 'Z') {
+				ch = (char)(ch - 'A' + 'a');
+			}
+			if (ch != kNtdll[i]) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	static DWORD64 ResolveKernel32ByPebX64() {
+		PEB_X64* peb = (PEB_X64*)__readgsqword(0x60);
+		if (!peb || !peb->Ldr) {
+			return 0;
+		}
+		DWORD64 ntdllBase = 0;
+		LIST_ENTRY* head = &peb->Ldr->InMemoryOrderModuleList;
+		for (LIST_ENTRY* node = head->Flink; node && node != head; node = node->Flink) {
+			LDR_DATA_TABLE_ENTRY_X64* entry = (LDR_DATA_TABLE_ENTRY_X64*)((BYTE*)node - offsetof(LDR_DATA_TABLE_ENTRY_X64, InMemoryOrderLinks));
+			if (EqualsKernel32Lower(&entry->BaseDllName)) {
+				return (DWORD64)entry->DllBase;
+			}
+			if (EqualsNtdllLower(&entry->BaseDllName)) {
+				ntdllBase = (DWORD64)entry->DllBase;
+			}
+		}
+
+		// kernel32.dll not in PEB (packed PE has no imports).
+		// Load it via ntdll.dll's LdrLoadDll.
+		if (ntdllBase) {
+			typedef LONG(NTAPI* FnLdrLoadDll)(PWCHAR, ULONG*, UNICODE_STRING_X64*, PVOID*);
+			FnLdrLoadDll pLdrLoadDll = (FnLdrLoadDll)puGetProcAddress(ntdllBase, 0xCC4C8B22);
+			if (pLdrLoadDll) {
+				WCHAR k32Name[] = { 'k','e','r','n','e','l','3','2','.','d','l','l',0 };
+				UNICODE_STRING_X64 us;
+				us.Length = sizeof(k32Name) - sizeof(WCHAR);
+				us.MaximumLength = sizeof(k32Name);
+				us.Buffer = k32Name;
+				PVOID hModule = nullptr;
+				pLdrLoadDll(nullptr, 0, &us, &hModule);
+				return (DWORD64)hModule;
+			}
+		}
+
+		return 0;
+	}
+} // namespace
+#endif
+
 void SetString(HWND hWnd)
 {
 	MyPostQuitMessage = (FnPostQuitMessage)puGetProcAddress(g_stud.s_User32, 0xCAA94781);
@@ -229,6 +350,37 @@ void SetString(HWND hWnd)
 	MyCreateWindowExW(WS_EX_CLIENTEDGE, WC_EDIT, TEXT(""), WS_CHILD | WS_VISIBLE, 120, 145, 160, 20, hWnd, (HMENU)0x1001, 0, NULL);
 	MyCreateWindowExW(WS_EX_CLIENTEDGE, WC_EDIT, TEXT(""), WS_CHILD | WS_VISIBLE, 120, 175, 160, 20, hWnd, (HMENU)0x1002, 0, NULL);
 	MyCreateWindowExW(0L, WC_BUTTON, TEXT("login:"), WS_CHILD | WS_VISIBLE, 120, 220, 70, 25, hWnd, (HMENU)0x1003, 0, NULL);
+}
+
+static BOOL IsApiSetLikeName(const char* name)
+{
+	if (!name) {
+		return FALSE;
+	}
+	const char apiPrefix[] = "api-";
+	const char extPrefix[] = "ext-";
+	for (int i = 0; apiPrefix[i]; ++i) {
+		char c = name[i];
+		if (c >= 'A' && c <= 'Z') {
+			c = (char)(c - 'A' + 'a');
+		}
+		if (c != apiPrefix[i]) {
+			goto check_ext;
+		}
+	}
+	return TRUE;
+
+check_ext:
+	for (int i = 0; extPrefix[i]; ++i) {
+		char c = name[i];
+		if (c >= 'A' && c <= 'Z') {
+			c = (char)(c - 'A' + 'a');
+		}
+		if (c != extPrefix[i]) {
+			return FALSE;
+		}
+	}
+	return TRUE;
 }
 
 void UnCompression()
@@ -249,7 +401,6 @@ void UnCompression()
 		MyVirtualProtect(pDataDirectory, 0x8, Att_old, &Att_old);
 		++pDataDirectory;
 	}
-
 	for (DWORD i = 0; i < g_stud.s_SectionCount - 2; ++i)
 	{
 		MyVirtualProtect(pSection, 0x8, PAGE_READWRITE, &Att_old);
@@ -260,27 +411,50 @@ void UnCompression()
 		MyVirtualProtect(pSection, 0x8, Att_old, &Att_old);
 		++pSection;
 	}
-
 	PIMAGE_SECTION_HEADER pSections = IMAGE_FIRST_SECTION(pNt);
 
 	DWORD Att_olds = 0;
 	DWORD64 SectionAddress = g_stud.s_CompressionSectionRva;
-	qlz_state_decompress *state_decompress = (qlz_state_decompress *)MyVirtualAlloc(NULL, sizeof(qlz_state_decompress), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 	for (DWORD i = 0; i < g_stud.s_SectionCount - 2; ++i)
 	{
+		if ((g_stud.s_blen[i] == 0) || (pSections->SizeOfRawData == 0)) {
+			++pSections;
+			SectionAddress += g_stud.s_blen[i];
+			continue;
+		}
+
 		BYTE* Address = (BYTE*)(pSections->VirtualAddress + m_Dlllpbase);
+		BYTE* CompressAddress = (BYTE*)(SectionAddress + m_Dlllpbase);
 
 		MyVirtualProtect(Address, g_stud.s_SectionOffsetAndSize[i][0], PAGE_EXECUTE_READWRITE, &Att_old);
-		MyVirtualProtect((void*)SectionAddress, g_stud.s_blen[i], PAGE_EXECUTE_READWRITE, &Att_olds);
+		MyVirtualProtect(CompressAddress, g_stud.s_blen[i], PAGE_EXECUTE_READWRITE, &Att_olds);
 
 #ifdef _WIN64
-		int nRet = qlz_decompress((char*)(SectionAddress + m_Dlllpbase), (char*)(pSections->VirtualAddress + m_Dlllpbase), state_decompress);
+		qlz_state_decompress* state_decompress = (qlz_state_decompress*)MyVirtualAlloc(
+			NULL,
+			sizeof(qlz_state_decompress),
+			MEM_RESERVE | MEM_COMMIT,
+			PAGE_READWRITE);
+		if (!state_decompress) {
+			MyVirtualProtect(Address, g_stud.s_SectionOffsetAndSize[i][0], Att_old, &Att_old);
+			MyVirtualProtect(CompressAddress, g_stud.s_blen[i], Att_olds, &Att_olds);
+			return;
+		}
+		int nRet = (int)qlz_decompress(
+			(char*)CompressAddress,
+			(char*)(pSections->VirtualAddress + m_Dlllpbase),
+			state_decompress);
 #else
 		// 缂撳啿鍖? RVA+鍔犺浇鍩哄潃  缂撳啿鍖哄ぇ灏? 鍘嬬缉杩囧幓鐨勫ぇ灏?
-		int nRet = LZ4_decompress_safe((char*)(SectionAddress + m_Dlllpbase), (char*)(pSections->VirtualAddress + m_Dlllpbase), g_stud.s_blen[i], pSections->SizeOfRawData);
+		int nRet = LZ4_decompress_safe((char*)CompressAddress, (char*)(pSections->VirtualAddress + m_Dlllpbase), g_stud.s_blen[i], pSections->SizeOfRawData);
 #endif
+		if (nRet <= 0) {
+			MyVirtualProtect(Address, g_stud.s_SectionOffsetAndSize[i][0], Att_old, &Att_old);
+			MyVirtualProtect(CompressAddress, g_stud.s_blen[i], Att_olds, &Att_olds);
+			return;
+		}
 		MyVirtualProtect(Address, g_stud.s_SectionOffsetAndSize[i][0], Att_old, &Att_old);
-		MyVirtualProtect((void*)SectionAddress, g_stud.s_blen[i], Att_olds, &Att_olds);
+		MyVirtualProtect(CompressAddress, g_stud.s_blen[i], Att_olds, &Att_olds);
 		++pSections;
 		SectionAddress += g_stud.s_blen[i];
 	}
@@ -297,57 +471,40 @@ void RepairTheIAT()
 	dwMoudle = (DWORD64)MyGetModuleHandleW(NULL);
 	ImportTabVA = g_stud.s_DataDirectory[1][0] + dwMoudle;
 	PIMAGE_IMPORT_DESCRIPTOR pImport = (PIMAGE_IMPORT_DESCRIPTOR)ImportTabVA;
-
-#ifdef _WIN64
-
-#else
-	// IAT
-	BYTE OpCode[] = { 0xe8, 0x01, 0x00, 0x00,
-					  0x00, 0xe9, 0x58, 0xeb,
-					  0x01, 0xe8, 0xb8, 0x8d,
-					  0xe4, 0xd8, 0x62, 0xeb,
-					  0x01, 0x15, 0x35, 0x75,
-					  0x35, 0x97, 0x13, 0xeb,
-					  0x01, 0xff, 0x50, 0xeb,
-					  0x02, 0xff, 0x15, 0xc3
-	};
-#endif
 	DWORD Att_old = 0;
 	while (pImport->Name)
 	{
 		char* Name = (char*)(pImport->Name + dwMoudle);
 		HMODULE hModuledll = MyLoadLibraryExA(Name, NULL, NULL);
-		PIMAGE_THUNK_DATA pThunkINT = (PIMAGE_THUNK_DATA)(pImport->OriginalFirstThunk + dwMoudle);
+		if (!hModuledll && IsApiSetLikeName(Name)) {
+			hModuledll = (HMODULE)g_stud.s_Krenel32;
+		}
+		if (!hModuledll) {
+			++pImport;
+			continue;
+		}
+		DWORD thunkRva = pImport->OriginalFirstThunk ? pImport->OriginalFirstThunk : pImport->FirstThunk;
+		PIMAGE_THUNK_DATA pThunkINT = (PIMAGE_THUNK_DATA)(thunkRva + dwMoudle);
 		PIMAGE_THUNK_DATA pThunkIAT = (PIMAGE_THUNK_DATA)(pImport->FirstThunk + dwMoudle);
 		while (pThunkINT->u1.AddressOfData)
 		{
-			MyVirtualProtect((PVOID64)pThunkIAT, 0x16, PAGE_READWRITE, &Att_old);
-			if (!IMAGE_SNAP_BY_ORDINAL(pThunkIAT->u1.Ordinal))
+			MyVirtualProtect((PVOID64)pThunkIAT, sizeof(ULONG_PTR), PAGE_READWRITE, &Att_old);
+			if (!IMAGE_SNAP_BY_ORDINAL(pThunkINT->u1.Ordinal))
 			{
 				PIMAGE_IMPORT_BY_NAME pName = (PIMAGE_IMPORT_BY_NAME)(pThunkINT->u1.AddressOfData + dwMoudle);
 				FunAddress = (DWORD64)MyGetProcAddress(hModuledll, pName->Name);
+				if (!FunAddress && IsApiSetLikeName(Name)) {
+					FunAddress = (DWORD64)MyGetProcAddress((HMODULE)g_stud.s_Krenel32, pName->Name);
+				}
 			}
 			else
 			{
-				DWORD64 dwFunOrdinal = IMAGE_ORDINAL((pThunkIAT->u1.Ordinal));
+				DWORD64 dwFunOrdinal = IMAGE_ORDINAL((pThunkINT->u1.Ordinal));
 				FunAddress = (DWORD64)MyGetProcAddress(hModuledll, (char*)dwFunOrdinal);
 			}
 
-#ifdef _WIN64
-			pThunkIAT->u1.Function = (ULONGLONG)FunAddress;
-#else
-			LPVOID AllocMem = NULL;
-			FunAddress ^= XORKEY;
-			AllocMem = (PDWORD)MyVirtualAlloc(NULL, 0x20, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-			//address offset
-			OpCode[11] = FunAddress;
-			OpCode[12] = FunAddress >> 0x8;
-			OpCode[13] = FunAddress >> 0x10;
-			OpCode[14] = FunAddress >> 0x18;
-			memcpy(AllocMem, OpCode, 0x20);
-			pThunkIAT->u1.Function = (ULONGLONG)AllocMem;
-#endif
-			MyVirtualProtect((PVOID64)pThunkIAT, 0x16, Att_old, &Att_old);
+			pThunkIAT->u1.Function = (ULONG_PTR)FunAddress;
+			MyVirtualProtect((PVOID64)pThunkIAT, sizeof(ULONG_PTR), Att_old, &Att_old);
 			++pThunkINT;
 			++pThunkIAT;
 		}
@@ -393,21 +550,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 					UnCompression();
 					RepairTheIAT();
 #ifdef _WIN64
-					CodeExecEntry(g_stud.s_dwOepBase);
+					CodeExecEntry(g_stud.s_dwOepBase + m_Dlllpbase, g_EntryArg1, g_EntryArg2, g_EntryArg3, g_EntryArg4);
 #else
 					__asm {
-						push esi;
-						push eax;
 						mov	 esi, g_stud.s_dwOepBase;
-						xor	 eax, eax;
-						add  eax, 0x200000;
-						add	 eax, 0x200000;
-						add	 eax, 0x200000;
-						sub  eax, 0x200000;
-						add  esi, eax;
+						add	 esi, m_Dlllpbase;
 						jmp	 esi;
-						pop eax;
-						pop esi;
 					}
 #endif
 				}
@@ -464,21 +612,12 @@ DWORD ProcessCallBack(LPVOID lpThreadParameter)
 			RepairTheIAT();
 #ifdef  _WIN64
 			MySleep(2000);
-			CodeExecEntry(g_stud.s_dwOepBase);
+			CodeExecEntry(g_stud.s_dwOepBase + m_Dlllpbase, g_EntryArg1, g_EntryArg2, g_EntryArg3, g_EntryArg4);
 #else
 			__asm {
-				push esi;
-				push eax;
 				mov	 esi, g_stud.s_dwOepBase;
-				xor	 eax, eax;
-				add  eax, 0x200000;
-				add	 eax, 0x200000;
-				add	 eax, 0x200000;
-				sub  eax, 0x200000
-					add  esi, eax;
+				add	 esi, m_Dlllpbase;
 				jmp	 esi;
-				pop eax;
-				pop esi;
 			}
 #endif
 			break;
@@ -533,22 +672,57 @@ int CreateWind()
 }
 
 // ShellCode Main
-void WINAPI CombatShellEntry()
+#ifdef _WIN64
+extern "C" DWORD64 WINAPI CombatShellEntryImpl(void* entryArg1, void* entryArg2, void* entryArg3, void* entryArg4)
+#else
+static DWORD WINAPI CombatShellEntryImpl()
+#endif
 {
-#ifndef _WIN64
+#ifdef _WIN64
+	g_EntryArg1 = (DWORD64)entryArg1;
+	g_EntryArg2 = (DWORD64)entryArg2;
+	g_EntryArg3 = (DWORD64)entryArg3;
+	g_EntryArg4 = (DWORD64)entryArg4;
+	g_stud.s_Krenel32 = ResolveKernel32ByPebX64();
+	if (!g_stud.s_Krenel32)
+		return 0;
+#else
 	g_stud.s_Krenel32 = puGetModule(0xEC1C6278);
+	if (!g_stud.s_Krenel32)
+		return 0;
 	MyLoadLibraryExA = (FnLoadLibraryExA)puGetProcAddress(g_stud.s_Krenel32, 0xC0D83287);
 	g_stud.s_User32 = (DWORD64)MyLoadLibraryExA("user32.dll", NULL, NULL);
 #endif
 	// VM_Start_start
 	// GetLoadlibraryExA
 	MyLoadLibraryExA = (FnLoadLibraryExA)puGetProcAddress(g_stud.s_Krenel32, 0xC0D83287);
+	if (!MyLoadLibraryExA)
+#ifdef _WIN64
+		return 0;
+#else
+		return 0;
+#endif
+#ifdef _WIN64
+	g_stud.s_User32 = (DWORD64)MyLoadLibraryExA("user32.dll", NULL, NULL);
+	if (!g_stud.s_User32)
+		return 0;
+#endif
 	// Load GDI32.lib
 	//g_stud.s_Gdi32 = (DWORD64)MyLoadLibraryExA("gdi32.dll", NULL, NULL);
 	// GetExitProcW
 	MyExitProcess = (FnExitProcess)puGetProcAddress(g_stud.s_Krenel32, 0x4FD18963);
 	// GetGetModuleW
 	MyGetModuleHandleW = (FnGetModuleHandleW)puGetProcAddress(g_stud.s_Krenel32, 0xF4E2F2C8);
+	if (MyGetModuleHandleW)
+	{
+		m_Dlllpbase = (DWORD64)MyGetModuleHandleW(NULL);
+	}
+#ifndef _WIN64
+	else
+	{
+		return 0;
+	}
+#endif
 	// GetCreateSolidBrush
 	//MyCreateSolidBrush = (FnCreateSolidBrush)puGetProcAddress(g_stud.s_Gdi32, 0xBB7420F9);
 	// GetUpdateData
@@ -586,27 +760,44 @@ void WINAPI CombatShellEntry()
 
 #ifndef _WIN64
 	// x86 direct path: avoid unstable UI flow, run shell restoration and jump back to OEP.
+	__try {
+		UnCompression();
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER) {
+		MyExitProcess(0xE1);
+		return 0;
+	}
+	__try {
+		RepairTheIAT();
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER) {
+		MyExitProcess(0xE2);
+		return 0;
+	}
+	return g_stud.s_dwOepBase + m_Dlllpbase;
+#else
+	// x64 direct path: restore sections/IAT and transfer control to original entry point.
 	UnCompression();
 	RepairTheIAT();
-	__asm {
-		push esi;
-		push eax;
-		mov	 esi, g_stud.s_dwOepBase;
-		xor	 eax, eax;
-		add  eax, 0x200000;
-		add	 eax, 0x200000;
-		add	 eax, 0x200000;
-		sub  eax, 0x200000;
-		add  esi, eax;
-		jmp	 esi;
-		pop eax;
-		pop esi;
-	}
-	return;
+	return g_stud.s_dwOepBase + m_Dlllpbase;
 #endif
 
 	CreateWind();
+#ifndef _WIN64
+	return 0;
+#endif
 }
+
+#ifndef _WIN64
+extern "C" __declspec(dllexport) __declspec(naked) void WINAPI CombatShellEntry()
+{
+	__asm {
+		call CombatShellEntryImpl
+		mov	 esi, eax
+		jmp	 esi
+	}
+}
+#endif
 
 // VM Module
 #ifdef _WIN64
@@ -937,54 +1128,12 @@ void WINAPI VmEntry()
 	MyGetModuleHandleW = (FnGetModuleHandleW)puGetProcAddress(g_stud.s_Krenel32, 0xF4E2F2C8);
 	// g_stud.s_User32 = (DWORD64)MyGetModuleHandleW(L"user32.dll");
 	g_hInstance = (HINSTANCE)MyGetModuleHandleW(NULL);
+	m_Dlllpbase = (DWORD64)g_hInstance;
 
-	// 1. 鏂规涓€浣跨敤鏂囦欢淇濆瓨VmCodeList鏁版嵁-缂虹偣涓嶇伒娲?涓嶆牸澶栧鍔犲３浣撶Н銆?寮€濮嬩娇鐢ㄨ鏂规
-	// 2. 鏂规浜屼娇鐢ㄦ坊鍔犳柊鍖烘淇濆瓨,绋冲Ε銆?
-	// 3. dll涓叏灞€鍙橀噺淇濆瓨,鏂逛究蹇嵎,浠庢敞閲婄▼搴﹀彲浠ユ瘮杈冧笌鏂规涓€宸窛銆?鏈€缁堥噴鏀炬柟妗?鈭?
-	// VmNode Vmnode;
-	// FILE *fpFile = NULL;
-	// int VmCount = 0, offsetaddr = 0, VmasmLen = 0;
-	// if ((fpFile = Myfopen("VmCodeList.txt", "rb+")) != NULL)
-	{
-		// Myfread(&VmCount, sizeof(int), 1, fpFile);
-		// 鏈繘琛孷M鍔犲瘑,鎵ц澹充唬鐮?
-		if (!g_VmNode.VmCount)
-		{
-			CombatShellEntry();
-			return;
-		}
-		for (size_t index = 0; index < g_VmNode.VmCount; ++index)
-		{
-			// Vmnode = { 0, };
-			// 鏂囦欢涓褰曠殑鏄亸绉籵ffset + m_Dlllpbase = RVA
-			// Myfread(&Vmnode.VmAddroffset, sizeof(DWORD64), 1, fpFile);
-			// Myfread(&Vmnode.Vmencodeasmlen, sizeof(int), 1, fpFile);
-
-			if (g_VmNode.Vmencodeasmlen)
-			{
-				// 缁撴瀯浣撶洰鍓?3*4 = 12
-				// char* VmStackCode = (char *)Mymalloc(g_VmNode.Vmencodeasmlen * sizeof(ArrayHlerp));
-				// Mymemset(VmStackCode, 0, g_VmNode.Vmencodeasmlen * 16);
-				// g_VmNode.data = (ArrayHlerp *)VmStackCode;
-				// 璇诲彇鍔犲瘑List {鍔犲瘑澶у皬 | 鍔犲瘑xor | vmflag}
-				// for (int i = 0; i < g_VmNode.Vmencodeasmlen; ++i)
-				// {
-					// Myfread(&Vmnode.data->xorKey, sizeof(int), 1, fpFile);
-					// Myfread(&Vmnode.data->bytesize, sizeof(unsigned short), 1, fpFile);
-					// Myfread(&Vmnode.data->encodeflag, sizeof(int), 1, fpFile);
-					// Myfread(Vmnode.data->mnemonic, 32, 1, fpFile);
-					// Vmnode.data++;
-				// }
-				// 娉ㄦ剰杩欓噷瑕佸啀绛夊洖鏉ワ紝鍚﹀垯data鏄唴瀛樻渶鍚庯紝鍥犱负寰幆涓€鐩?+
-				// Vmnode.data = (ArrayHlerp *)VmStackCode;
-				// 杩涘叆铏氭嫙鏈?-->  鎵ц --> oep
-				VmStart(&g_VmNode);
-				// Myfree(VmStackCode);
-				// VmStackCode = NULL;
-			}
-			// Next 璇诲彇涓嬩竴涓姞瀵嗙殑瀵嗙爜娈?鎵ц
-		}
-	}
+	// x64 runtime always uses the direct shell restoration path.
+	// VM metadata is optional and may be absent for stable pack output.
+	CombatShellEntry((void*)g_EntryArg1, (void*)g_EntryArg2, (void*)g_EntryArg3, (void*)g_EntryArg4);
+	return;
 }
 
 #endif
