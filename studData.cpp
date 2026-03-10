@@ -218,18 +218,12 @@ BOOL studData::CopyStud()
 	pNt->OptionalHeader.AddressOfEntryPoint = (DWORD)dexportAddress - (DWORD)m_studBase - studSection->VirtualAddress + SurceBase->VirtualAddress;
 #endif
 
-	// The packer creates sections with PointerToRawData aligned to 0x200, but
-	// the original PE might declare FileAlignment = 0x1000.  The PE loader
-	// rejects sections whose PTRD is not a multiple of FileAlignment, which
-	// silently breaks import resolution and section mapping.  Force 0x200 so
-	// the packed layout is valid.
+	// Force FileAlignment to 0x200 so the compact section layout
+	// (PTRD values at 0x200 multiples) is valid for any source PE.
+	// Also fix SizeOfHeaders to match.
 	if (pNt->OptionalHeader.FileAlignment > 0x200) {
 		pNt->OptionalHeader.FileAlignment = 0x200;
 	}
-
-	// Also fix SizeOfHeaders: the original value (e.g. 0x1000) can overlap
-	// with the first section data (PTRD=0x400).  Re-derive from the actual
-	// header + section-table size, aligned to the new FileAlignment.
 	{
 		DWORD hdrsEnd = (DWORD)(
 			((PIMAGE_DOS_HEADER)m_lpBase)->e_lfanew + 24 +

@@ -298,25 +298,19 @@ BOOL CompressionData::CompressSectionData()
 	if (fpFile)
 		fclose(fpFile);
 
-	// 数据对齐 0x400 + (压缩后的大小 / 0x200 + ----压缩后的大小 % 0x200 ? 1 : 0) 0x200;
-	DWORD Size = 0;
-	if (ComressTotalSize % 0x200 == 0)
-	{
-		Size = pStandardHeadersize + ((ComressTotalSize / 0x200) * 0x200);
-		int a = 10;
-	}
-	else
-	{
-		Size = pStandardHeadersize + (((ComressTotalSize / 0x200) + 1) * 0x200);
-		int a = 10;
-	}
-
+	// Align compressed data to 0x200 (the final FileAlignment forced by CopyStud).
+	// Use pStandardHeadersize as the base offset (not hardcoded 0x400) so that
+	// the header area isn't truncated for PEs with large original headers.
+	DWORD alignedCompressed = ComressTotalSize;
+	if (alignedCompressed % 0x200 != 0)
+		alignedCompressed = ((alignedCompressed / 0x200) + 1) * 0x200;
+	DWORD Size = pStandardHeadersize + alignedCompressed;
 
 	// 创建一个新区段
-	DWORD ModifySize = Size - 0x400;
+	DWORD ModifySize = Size - pStandardHeadersize;
 	AddCompreDataSection(ModifySize);
 
-	// 重载文件 - 修改新区段的信息数据 文件偏移 0x400  大小 压缩后数据对齐大小
+	// 重载文件 - 修改新区段的信息数据 文件偏移 = pStandardHeadersize 大小 = 压缩后数据对齐大小
 	ReFileInit();
 
 	// Re-query m_maskAddress: ReFileInit() freed the old PE allocation and created
@@ -328,7 +322,7 @@ BOOL CompressionData::CompressSectionData()
 	}
 
 	BYTE byteName[] = ".UPX";
-	SinglePuPEInfo::instance()->puSetFileoffsetAndFileSize(m_lpBase, 0x400, ModifySize, byteName);
+	SinglePuPEInfo::instance()->puSetFileoffsetAndFileSize(m_lpBase, pStandardHeadersize, ModifySize, byteName);
 	BYTE byteNmase[] = ".UPX";
 	PIMAGE_SECTION_HEADER compSectionAddress = SinglePuPEInfo::instance()->puGetSectionAddress((char*)m_lpBase, byteNmase);
 	if (!compSectionAddress)
@@ -449,7 +443,6 @@ BOOL CompressionData::CleanDirectData(const char* NewAddress, const DWORD & Comp
 	{
 		memcpy(&g_stu->s_SectionOffsetAndSize[i][0], &pSection->SizeOfRawData, sizeof(DWORD));
 		memcpy(&g_stu->s_SectionOffsetAndSize[i][1], &pSection->PointerToRawData, sizeof(DWORD));
-		//fprintf(fpFile, "% %04x", pSection->SizeOfRawData, pSection->PointerToRawData);
 		fwrite(&pSection->SizeOfRawData, sizeof(DWORD), 1, fpFile);
 		fwrite(&pSection->PointerToRawData, sizeof(DWORD), 1, fpFile);
 		fflush(fpFile);

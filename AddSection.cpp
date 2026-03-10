@@ -185,7 +185,13 @@ BOOL AddSection::ModifySizeofImage()
 		const DWORD sectionAlignment = pNt->OptionalHeader.SectionAlignment ? pNt->OptionalHeader.SectionAlignment : 0x1000;
 		const DWORD imageEnd = NewpSection->VirtualAddress + max(NewpSection->Misc.VirtualSize, NewpSection->SizeOfRawData);
 		pNt->OptionalHeader.SizeOfImage = AlignUpDword(imageEnd, sectionAlignment);
-		pNt->OptionalHeader.DllCharacteristics = 0x8000;
+		// Preserve original DllCharacteristics but clear flags that require
+		// data directories zeroed in the packed PE:
+		// - GUARD_CF (0x4000): LoadConfig directory is zeroed
+		// - DYNAMIC_BASE (0x0040): .reloc section data is zeroed, no relocation possible
+		// - HIGH_ENTROPY_VA (0x0020): meaningless without DYNAMIC_BASE
+		// Keep NX_COMPAT, TERMINAL_SERVER_AWARE, etc.
+		pNt->OptionalHeader.DllCharacteristics &= ~(WORD)(0x4000 | 0x0040 | 0x0020);
 		return TRUE;
 	}
 	return FALSE;
