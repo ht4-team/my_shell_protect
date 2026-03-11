@@ -805,204 +805,348 @@ extern "C" __declspec(dllexport) __declspec(naked) void WINAPI CombatShellEntry(
 // VM Module
 #ifdef _WIN64
 
-void VmCodetoExecDispath(int handlerid, unsigned char* pOpCode, int codelen, unsigned __int64 vmstarbaseaddr, x86regeditNode* vmcurrentstackstatus)
-/*
-	@1 锛?鎸囦护id
-	@2 锛?pOpcode宸茶В瀵?
-	@3 锛?鐩稿Cuurent_Vmstart鍋忕Щoffset
-	@4 锛?imagebase + Vmstartoffset + asmoffset(鐩稿浜巚mstart)
-	@5 锛?Vm_CurrentRegeditstatus 淇濆瓨handler澶勭悊鍚庡睘浜庤嚜宸变唬鐮佺殑瀵勫瓨鍣ㄧ姸鎬?
-*/
+
+// Helper: read a 64-bit register from the VM register file by index (0=rax..15=r15)
+static unsigned __int64 VmReadReg(x86regeditNode* r, int idx)
 {
+	switch (idx) {
+	case 0:  return r->rax; case 1:  return r->rcx; case 2:  return r->rdx; case 3:  return r->rbx;
+	case 4:  return r->rsp; case 5:  return r->rbp; case 6:  return r->rsi; case 7:  return r->rdi;
+	case 8:  return r->r8;  case 9:  return r->r9;  case 10: return r->r10; case 11: return r->r11;
+	case 12: return r->r12; case 13: return r->r13; case 14: return r->r14; case 15: return r->r15;
+	default: return 0;
+	}
+}
+
+// Helper: write a 64-bit register in the VM register file by index
+static void VmWriteReg(x86regeditNode* r, int idx, unsigned __int64 val)
+{
+	switch (idx) {
+	case 0:  r->rax = val; break; case 1:  r->rcx = val; break;
+	case 2:  r->rdx = val; break; case 3:  r->rbx = val; break;
+	case 4:  r->rsp = val; break; case 5:  r->rbp = val; break;
+	case 6:  r->rsi = val; break; case 7:  r->rdi = val; break;
+	case 8:  r->r8  = val; break; case 9:  r->r9  = val; break;
+	case 10: r->r10 = val; break; case 11: r->r11 = val; break;
+	case 12: r->r12 = val; break; case 13: r->r13 = val; break;
+	case 14: r->r14 = val; break; case 15: r->r15 = val; break;
+	}
+}
+
+// Helper: decode x64 register index from REX + ModRM.reg field
+static int VmDecodeReg(unsigned char rex, unsigned char modrm)
+{
+	int reg = (modrm >> 3) & 7;
+	if (rex & 0x04) reg |= 8;	// REX.R
+	return reg;
+}
+
+// Helper: decode x64 register index from REX + ModRM.rm field
+static int VmDecodeRm(unsigned char rex, unsigned char modrm)
+{
+	int rm = modrm & 7;
+	if (rex & 0x01) rm |= 8;	// REX.B
+	return rm;
+}
+
+// Helper: update ZF and SF in rflags based on a 64-bit result
+static void VmUpdateFlags(x86regeditNode* r, unsigned __int64 result)
+{
+	if (result == 0)
+		r->rflags |= (1ULL << 6);	// set ZF
+	else
+		r->rflags &= ~(1ULL << 6);	// clear ZF
+	if (result & (1ULL << 63))
+		r->rflags |= (1ULL << 7);	// set SF
+	else
+		r->rflags &= ~(1ULL << 7);	// clear SF
+}
+
+/*
+	VM instruction dispatcher
+	Handler IDs:
+	  1   = nop
+	  2   = ret (free VM stack, set rbp=0)
+	  20  = xor reg, reg
+	  50  = add rsp, imm8
+	  51  = sub rsp, imm8
+	  100 = call (E8 rel32 / FF 15 [rip+disp32])
+	  101 = jmp (FF E0 = jmp rax / EB rel8 / E9 rel32)
+	  102 = lea reg, [rip+disp32]
+	  103 = mov (multiple variants)
+	  105 = push reg
+	  106 = test reg, reg
+	  107 = jz / je
+	  108 = jnz / jne
+	  109 = pop reg
+	  110 = cmp
+*/
+void VmCodetoExecDispath(int handlerid, unsigned char* pOpCode, int codelen, unsigned __int64 vmstarbaseaddr, x86regeditNode* vmcurrentstackstatus)
+{
+	unsigned char rex = 0;
+	unsigned char modrm = 0;
 
 	switch (handlerid)
 	{
-	case 1:
+	case 1:		// nop
 		break;
-	case 2:
+
+	case 2:		// ret
 	{
-		// ret 閿€姣佹爤
 		MyVirtualFree((LPVOID)vmcurrentstackstatus->rbp, 0x100000, MEM_RELEASE);
 		vmcurrentstackstatus->rbp = 0;
 	}
 	break;
-	case 3:
-		break;
-	case 20:	// xor
+
+	case 20:	// xor reg, reg (register zeroing)
 	{
-		if (codelen == 3)
-		{
-			// 45:33C0 xor r8d,r8d
-			if (*(pOpCode + 2) == (unsigned char)'\xc0')
-			{
-				VmXor_r8dHandle(pOpCode, (unsigned __int64)(&vmcurrentstackstatus->r8));
-			}
+		int prefix_len = 0;
+		rex = 0;
+		if (codelen >= 3 && (*pOpCode & 0xF0) == 0x40) {
+			rex = *pOpCode;
+			prefix_len = 1;
 		}
-		else
-		{
-			// 33D2 xor edx,edx 
-			if (*(pOpCode + 1) == (unsigned char)'\xd2')
-			{
-				VmXor_EdxHandle(pOpCode, (unsigned __int64)(&vmcurrentstackstatus->rdx));
-			}
-			// 33C9 xor ecx,ecx 
-			if (*(pOpCode + 1) == (unsigned char)'\xc9')
-			{
-				VmXor_EcxHandle(pOpCode, (unsigned __int64)(&vmcurrentstackstatus->rcx));
-			}
-		}
+		modrm = *(pOpCode + prefix_len + 1);
+		int dst = VmDecodeRm(rex, modrm);
+		VmWriteReg(vmcurrentstackstatus, dst, 0);
+		VmUpdateFlags(vmcurrentstackstatus, 0);
 	}
 	break;
-	case 50:
+
+	case 50:	// add rsp, imm8
 	{
-		// 48:83C4 28 add rsp
-		if (*(pOpCode + 2) == (unsigned char)('\xC4'))
-		{
+		if (*(pOpCode + 2) == (unsigned char)'\xC4') {
 			VmAdd_RspHandle(pOpCode, (unsigned __int64)(&vmcurrentstackstatus->rsp));
 		}
 	}
 	break;
-	case 51:	// sub
+
+	case 51:	// sub rsp, imm8
 	{
-		if (*(pOpCode + 2) == (unsigned char)('\xEC'))
-		{
-			// sub rsp, 28(byte) 
+		if (*(pOpCode + 2) == (unsigned char)'\xEC') {
 			VmSub_RSPHandle(pOpCode, (unsigned __int64)(&vmcurrentstackstatus->rsp));
 		}
 	}
 	break;
-	case 100:	// call  姣忔鎭㈠ebp
+
+	case 100:	// call
 	{
-		// E8 8B020000(offset)
-		if (*pOpCode == (unsigned char)'\xE8')
-		{
-			// @2锛歰ffset + 5 + currentaddr = call_addr
-			// @4锛歳ax = ret
-			VmCallE8_Handle(pOpCode, vmstarbaseaddr + 5, (unsigned long long)(&vmcurrentstackstatus), (unsigned long long)(&vmcurrentstackstatus->rax));
+		if (*pOpCode == (unsigned char)'\xE8') {
+			VmCallE8_Handle(pOpCode, vmstarbaseaddr + 5,
+				(unsigned long long)(&vmcurrentstackstatus),
+				(unsigned long long)(&vmcurrentstackstatus->rax));
 		}
-		if ((*pOpCode == (unsigned char)'\xff') && ((*(pOpCode + 1)) == (unsigned char)'\x15'))
-		{
-			VmCallFF15_Handle(pOpCode, vmstarbaseaddr + 6, (unsigned long long)(&vmcurrentstackstatus), (unsigned long long)(&vmcurrentstackstatus->rax));
+		else if (*pOpCode == (unsigned char)'\xFF' && *(pOpCode + 1) == (unsigned char)'\x15') {
+			VmCallFF15_Handle(pOpCode, vmstarbaseaddr + 6,
+				(unsigned long long)(&vmcurrentstackstatus),
+				(unsigned long long)(&vmcurrentstackstatus->rax));
 		}
 	}
 	break;
+
 	case 101:	// jmp
 	{
-		// FF E0 → jmp rax: VM exit
-		if (*pOpCode == (unsigned char)'\xFF' && *(pOpCode + 1) == (unsigned char)'\xE0')
-		{
-			vmcurrentstackstatus->rbp = 0;
+		if (*pOpCode == (unsigned char)'\xFF' && *(pOpCode + 1) == (unsigned char)'\xE0') {
+			vmcurrentstackstatus->rbp = 0;	// jmp rax: VM exit
+		}
+		else if (*pOpCode == (unsigned char)'\xEB') {
+			signed char rel = (signed char)*(pOpCode + 1);
+			vmcurrentstackstatus->vm_ip_byte_delta = 2 + (signed __int64)rel;
+		}
+		else if (*pOpCode == (unsigned char)'\xE9') {
+			signed int rel = *(signed int*)(pOpCode + 1);
+			vmcurrentstackstatus->vm_ip_byte_delta = 5 + (signed __int64)rel;
 		}
 	}
 	break;
-	case 102:	// lea
+
+	case 102:	// lea reg, [rip+disp32]
 	{
-		if (*(pOpCode + 2) == (unsigned char)'\x15')
-		{
+		if (*(pOpCode + 2) == (unsigned char)'\x15') {
 			VmLea_RDXHandle(pOpCode, vmstarbaseaddr, (unsigned long long)(&vmcurrentstackstatus->rdx));
 		}
-		else if (*(pOpCode + 2) == (unsigned char)'\x0D')
-		{
-			// rcx = dll_base + vmstartoffset + imm + 7
+		else if (*(pOpCode + 2) == (unsigned char)'\x0D') {
 			VmLea_RCXHandle(pOpCode, vmstarbaseaddr, (unsigned long long)(&vmcurrentstackstatus->rcx));
 		}
 	}
 	break;
-	case 103:	// mov
+	case 103:	// mov (multiple variants)
 	{
-		// mov qword ptr ds:[xx], rax 8905
-		if (*(pOpCode + 2) == (unsigned char)'\x05')
-		{
+		// mov [rip+disp32], rax: 48 89 05 xx xx xx xx
+		if (*(pOpCode + 2) == (unsigned char)'\x05') {
 			VmMov_MemHandle(pOpCode, vmstarbaseaddr, (unsigned long long)(&vmcurrentstackstatus->rax));
 		}
-		// B9 18428C22 | mov ecx, 228C4218
-		else if (*pOpCode == (unsigned char)'\xB9')
-		{
+		// mov ecx, imm32: B9 xx xx xx xx
+		else if (*pOpCode == (unsigned char)'\xB9') {
 			VmMov_ECXHandle(pOpCode, vmstarbaseaddr, (unsigned long long)(&vmcurrentstackstatus->rcx));
 		}
-		// 48:8B0D mov rcx
-		else if (*(pOpCode + 2) == (unsigned char)'\x0D')
-		{
+		// mov rcx, [rip+disp32]: 48 8B 0D xx xx xx xx
+		else if (*(pOpCode + 2) == (unsigned char)'\x0D') {
 			VmMov_RCXHandle(pOpCode, vmstarbaseaddr, (unsigned long long)(&vmcurrentstackstatus->rcx));
 		}
-		// BA 8732D8C0 | mov edx, C0D83287
-		else if (*pOpCode == (unsigned char)'\xBA')
-		{
+		// mov edx, imm32: BA xx xx xx xx
+		else if (*pOpCode == (unsigned char)'\xBA') {
 			VmMov_EDXHandle(pOpCode, vmstarbaseaddr, (unsigned long long)(&vmcurrentstackstatus->rdx));
 		}
-		// mov reg, [rsp+disp8]: (48|4C) 8B xx 24 dd
-		else if (*(pOpCode + 1) == (unsigned char)'\x8B' && codelen >= 4 && *(pOpCode + 3) == (unsigned char)'\x24')
-		{
-			unsigned char modrm = *(pOpCode + 2);
-			unsigned char reg_bits = (modrm >> 3) & 7;
-			int rex_r = (*pOpCode & 0x04);		// REX.R
+		// mov reg, [rsp+disp]: (48|4C) 8B xx 24 dd
+		else if (*(pOpCode + 1) == (unsigned char)'\x8B' && codelen >= 4 && *(pOpCode + 3) == (unsigned char)'\x24') {
+			rex = *pOpCode;
+			modrm = *(pOpCode + 2);
+			int reg = VmDecodeReg(rex, modrm);
 			unsigned __int64 disp = 0;
-			if ((modrm & 0xC0) == 0x40)			// mod=01 → disp8
-				disp = *(pOpCode + 4);
+			if ((modrm & 0xC0) == 0x40) disp = *(pOpCode + 4);
+			else if ((modrm & 0xC0) == 0x80) disp = *(unsigned int*)(pOpCode + 4);
 			unsigned __int64 val = *(unsigned __int64*)(vmcurrentstackstatus->rsp + disp);
-			int full_reg = reg_bits | (rex_r ? 8 : 0);
-			switch (full_reg) {
-			case 0: vmcurrentstackstatus->rax = val; break;
-			case 1: vmcurrentstackstatus->rcx = val; break;
-			case 2: vmcurrentstackstatus->rdx = val; break;
-			case 3: vmcurrentstackstatus->rbx = val; break;
-			case 8: vmcurrentstackstatus->r8  = val; break;
-			case 9: vmcurrentstackstatus->r9  = val; break;
-			default: break;
+			VmWriteReg(vmcurrentstackstatus, reg, val);
+		}
+		// mov [rsp+disp], reg: (48|4C) 89 xx 24 dd
+		else if (*(pOpCode + 1) == (unsigned char)'\x89' && codelen >= 4 && *(pOpCode + 3) == (unsigned char)'\x24') {
+			rex = *pOpCode;
+			modrm = *(pOpCode + 2);
+			int reg = VmDecodeReg(rex, modrm);
+			unsigned __int64 disp = 0;
+			if ((modrm & 0xC0) == 0x40) disp = *(pOpCode + 4);
+			else if ((modrm & 0xC0) == 0x80) disp = *(unsigned int*)(pOpCode + 4);
+			unsigned __int64 val = VmReadReg(vmcurrentstackstatus, reg);
+			*(unsigned __int64*)(vmcurrentstackstatus->rsp + disp) = val;
+		}
+		// mov reg, reg: (4x) 89/8B C0-FF (mod=11)
+		else if ((*(pOpCode + 1) == (unsigned char)'\x89' || *(pOpCode + 1) == (unsigned char)'\x8B')
+			&& codelen == 3 && (*(pOpCode + 2) & 0xC0) == 0xC0) {
+			rex = *pOpCode;
+			modrm = *(pOpCode + 2);
+			if (*(pOpCode + 1) == (unsigned char)'\x89') {
+				int src = VmDecodeReg(rex, modrm);
+				int dst = VmDecodeRm(rex, modrm);
+				VmWriteReg(vmcurrentstackstatus, dst, VmReadReg(vmcurrentstackstatus, src));
+			} else {
+				int dst = VmDecodeReg(rex, modrm);
+				int src = VmDecodeRm(rex, modrm);
+				VmWriteReg(vmcurrentstackstatus, dst, VmReadReg(vmcurrentstackstatus, src));
 			}
 		}
 	}
 	break;
+
 	case 105:	// push reg
 	{
 		unsigned __int64 value = 0;
 		if (codelen == 1) {
-			// 50=rax 51=rcx 52=rdx 53=rbx
-			switch (*pOpCode) {
-			case 0x50: value = vmcurrentstackstatus->rax; break;
-			case 0x51: value = vmcurrentstackstatus->rcx; break;
-			case 0x52: value = vmcurrentstackstatus->rdx; break;
-			case 0x53: value = vmcurrentstackstatus->rbx; break;
-			default: break;
-			}
+			int reg = (*pOpCode) - 0x50;
+			if (reg >= 0 && reg <= 7)
+				value = VmReadReg(vmcurrentstackstatus, reg);
 		}
-		else if (codelen == 2 && *pOpCode == (unsigned char)'\x41') {
-			// 41 50=r8 41 51=r9 41 52=r10 41 53=r11
-			switch (*(pOpCode + 1)) {
-			case 0x50: value = vmcurrentstackstatus->r8;  break;
-			case 0x51: value = vmcurrentstackstatus->r9;  break;
-			case 0x52: value = vmcurrentstackstatus->r10; break;
-			case 0x53: value = vmcurrentstackstatus->r11; break;
-			default: break;
-			}
+		else if (codelen == 2 && (*pOpCode & 0xF0) == 0x40) {
+			int reg = (*(pOpCode + 1)) - 0x50;
+			if (*pOpCode & 0x01) reg |= 8;
+			value = VmReadReg(vmcurrentstackstatus, reg);
 		}
 		vmcurrentstackstatus->rsp -= 8;
 		*(unsigned __int64*)(vmcurrentstackstatus->rsp) = value;
 	}
 	break;
-	case 106:	// test
+
+	case 106:	// test reg, reg
 	{
-		// test rax, rax → set ZF in rflags
-		if (vmcurrentstackstatus->rax == 0)
-			vmcurrentstackstatus->rflags |= (1ULL << 6);	// set ZF
-		else
-			vmcurrentstackstatus->rflags &= ~(1ULL << 6);	// clear ZF
+		rex = 0;
+		int prefix_len = 0;
+		if ((*pOpCode & 0xF0) == 0x40) { rex = *pOpCode; prefix_len = 1; }
+		if (*(pOpCode + prefix_len) == (unsigned char)'\x85') {
+			modrm = *(pOpCode + prefix_len + 1);
+			int reg1 = VmDecodeReg(rex, modrm);
+			int reg2 = VmDecodeRm(rex, modrm);
+			unsigned __int64 result = VmReadReg(vmcurrentstackstatus, reg1) & VmReadReg(vmcurrentstackstatus, reg2);
+			VmUpdateFlags(vmcurrentstackstatus, result);
+		}
 	}
 	break;
+
 	case 107:	// jz / je
 	{
-		if (vmcurrentstackstatus->rflags & (1ULL << 6))		// ZF set → jump taken
-		{
+		if (vmcurrentstackstatus->rflags & (1ULL << 6)) {
 			if (*pOpCode == (unsigned char)'\x74') {
-				// short jz: 74 rel8
 				signed char rel = (signed char)*(pOpCode + 1);
 				vmcurrentstackstatus->vm_ip_byte_delta = 2 + (signed __int64)rel;
 			}
 			else if (*pOpCode == (unsigned char)'\x0F' && *(pOpCode + 1) == (unsigned char)'\x84') {
-				// near jz: 0F 84 rel32
 				signed int rel = *(signed int*)(pOpCode + 2);
 				vmcurrentstackstatus->vm_ip_byte_delta = 6 + (signed __int64)rel;
 			}
+		}
+	}
+	break;
+
+	case 108:	// jnz / jne
+	{
+		if (!(vmcurrentstackstatus->rflags & (1ULL << 6))) {
+			if (*pOpCode == (unsigned char)'\x75') {
+				signed char rel = (signed char)*(pOpCode + 1);
+				vmcurrentstackstatus->vm_ip_byte_delta = 2 + (signed __int64)rel;
+			}
+			else if (*pOpCode == (unsigned char)'\x0F' && *(pOpCode + 1) == (unsigned char)'\x85') {
+				signed int rel = *(signed int*)(pOpCode + 2);
+				vmcurrentstackstatus->vm_ip_byte_delta = 6 + (signed __int64)rel;
+			}
+		}
+	}
+	break;
+
+	case 109:	// pop reg
+	{
+		unsigned __int64 value = *(unsigned __int64*)(vmcurrentstackstatus->rsp);
+		vmcurrentstackstatus->rsp += 8;
+		if (codelen == 1) {
+			int reg = (*pOpCode) - 0x58;
+			if (reg >= 0 && reg <= 7)
+				VmWriteReg(vmcurrentstackstatus, reg, value);
+		}
+		else if (codelen == 2 && (*pOpCode & 0xF0) == 0x40) {
+			int reg = (*(pOpCode + 1)) - 0x58;
+			if (*pOpCode & 0x01) reg |= 8;
+			VmWriteReg(vmcurrentstackstatus, reg, value);
+		}
+	}
+	break;
+
+	case 110:	// cmp
+	{
+		rex = 0;
+		int prefix_len = 0;
+		if ((*pOpCode & 0xF0) == 0x40) { rex = *pOpCode; prefix_len = 1; }
+		unsigned char op = *(pOpCode + prefix_len);
+		if (op == 0x39) {
+			modrm = *(pOpCode + prefix_len + 1);
+			int reg = VmDecodeReg(rex, modrm);
+			int rm = VmDecodeRm(rex, modrm);
+			unsigned __int64 a = VmReadReg(vmcurrentstackstatus, rm);
+			unsigned __int64 b = VmReadReg(vmcurrentstackstatus, reg);
+			VmUpdateFlags(vmcurrentstackstatus, a - b);
+			if (a < b) vmcurrentstackstatus->rflags |= 1; else vmcurrentstackstatus->rflags &= ~1ULL;
+		}
+		else if (op == 0x3B) {
+			modrm = *(pOpCode + prefix_len + 1);
+			int reg = VmDecodeReg(rex, modrm);
+			int rm = VmDecodeRm(rex, modrm);
+			unsigned __int64 a = VmReadReg(vmcurrentstackstatus, reg);
+			unsigned __int64 b = VmReadReg(vmcurrentstackstatus, rm);
+			VmUpdateFlags(vmcurrentstackstatus, a - b);
+			if (a < b) vmcurrentstackstatus->rflags |= 1; else vmcurrentstackstatus->rflags &= ~1ULL;
+		}
+		else if (op == 0x83) {
+			modrm = *(pOpCode + prefix_len + 1);
+			int rm = VmDecodeRm(rex, modrm);
+			unsigned __int64 a = VmReadReg(vmcurrentstackstatus, rm);
+			signed char imm = (signed char)*(pOpCode + prefix_len + 2);
+			unsigned __int64 b = (unsigned __int64)(signed __int64)imm;
+			VmUpdateFlags(vmcurrentstackstatus, a - b);
+			if (a < b) vmcurrentstackstatus->rflags |= 1; else vmcurrentstackstatus->rflags &= ~1ULL;
+		}
+		else if (op == 0x3D) {
+			unsigned __int64 a = vmcurrentstackstatus->rax;
+			signed int imm = *(signed int*)(pOpCode + prefix_len + 1);
+			unsigned __int64 b = (unsigned __int64)(signed __int64)imm;
+			VmUpdateFlags(vmcurrentstackstatus, a - b);
+			if (a < b) vmcurrentstackstatus->rflags |= 1; else vmcurrentstackstatus->rflags &= ~1ULL;
 		}
 	}
 	break;
@@ -1010,6 +1154,7 @@ void VmCodetoExecDispath(int handlerid, unsigned char* pOpCode, int codelen, uns
 		break;
 	}
 }
+
 
 int  VmOpcodeAnalHlper(PVOID64 Vmcodeaddr, unsigned char* pOpCode, unsigned int size) 
 {
@@ -1058,6 +1203,10 @@ int  VmOpcodeAnalHlper(PVOID64 Vmcodeaddr, unsigned char* pOpCode, unsigned int 
 		{
 			return 105;
 		}
+		else if (0 == My_stricmp("pop", Hlerp->mnemonic))
+		{
+			return 109;
+		}
 	}
 	break;
 	case 2:
@@ -1070,9 +1219,17 @@ int  VmOpcodeAnalHlper(PVOID64 Vmcodeaddr, unsigned char* pOpCode, unsigned int 
 		{
 			return 105;
 		}
+		else if (0 == My_stricmp("pop", Hlerp->mnemonic))
+		{
+			return 109;
+		}
 		else if (0 == My_stricmp("je", Hlerp->mnemonic))
 		{
 			return 107;
+		}
+		else if (0 == My_stricmp("jne", Hlerp->mnemonic))
+		{
+			return 108;
 		}
 		else if (0 == My_stricmp("jmp", Hlerp->mnemonic))
 		{
@@ -1089,6 +1246,10 @@ int  VmOpcodeAnalHlper(PVOID64 Vmcodeaddr, unsigned char* pOpCode, unsigned int 
 		else if (0 == My_stricmp("test", Hlerp->mnemonic))
 		{
 			return 106;
+		}
+		else if (0 == My_stricmp("cmp", Hlerp->mnemonic))
+		{
+			return 110;
 		}
 	}
 	break;
@@ -1127,6 +1288,22 @@ int  VmOpcodeAnalHlper(PVOID64 Vmcodeaddr, unsigned char* pOpCode, unsigned int 
 		else if (0 == My_stricmp("je", Hlerp->mnemonic))
 		{
 			return 107;
+		}
+		else if (0 == My_stricmp("jne", Hlerp->mnemonic))
+		{
+			return 108;
+		}
+		else if (0 == My_stricmp("cmp", Hlerp->mnemonic))
+		{
+			return 110;
+		}
+		else if (0 == My_stricmp("test", Hlerp->mnemonic))
+		{
+			return 106;
+		}
+		else if (0 == My_stricmp("xor", Hlerp->mnemonic))
+		{
+			return 20;
 		}
 	}
 	break;
