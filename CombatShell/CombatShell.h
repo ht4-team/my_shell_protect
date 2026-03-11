@@ -79,6 +79,8 @@ typedef struct _x86regeditNode
 	unsigned __int64 r13;
 	unsigned __int64 r14;
 	unsigned __int64 r15;
+	unsigned __int64 rflags;			// struct.offset = 128, bit 6 = ZF
+	signed __int64   vm_ip_byte_delta;	// struct.offset = 136, non-zero = jump taken
 }x86regeditNode;
 
 // Capstone Ptr

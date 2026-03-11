@@ -68,7 +68,7 @@ void CompressionData::VmcodeEntry(char* TargetCode, _Out_ int &CodeLength)
 	DWORD64 Offset = 0;
 	// 获取VM的起始地址
 #ifdef _WIN64
-	DWORD64 Vmencodeaddr = (DWORD64)GetProcAddress((HMODULE)m_studBase, "CombatShellEntry_Vm");
+	DWORD64 Vmencodeaddr = (DWORD64)GetProcAddress((HMODULE)m_studBase, "CombatShellEntry");
 #else
 	DWORD64 Vmencodeaddr = (DWORD64)GetProcAddress((HMODULE)m_studBase, "CombatShellEntry");
 #endif
@@ -90,7 +90,7 @@ void CompressionData::VmcodeEntry(char* TargetCode, _Out_ int &CodeLength)
 	// write: 1. offset -- 汇编指令
 	g_Vm->VmAddroffset = Offset;
 #ifdef _WIN64
-	vm_len = 4;		// CombatShellEntry_Vm has exactly 4 instructions: sub/call/add/ret
+	vm_len = 21;		// CombatShellEntry has 21 instructions (push/sub/mov/call/add/test/jz/jmp/ret)
 #else
 	vm_len = 82;		// 固定的需要人工去看反汇编多少行,ida中看一下,不智能
 #endif

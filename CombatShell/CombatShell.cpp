@@ -884,7 +884,15 @@ void VmCodetoExecDispath(int handlerid, unsigned char* pOpCode, int codelen, uns
 		{
 			VmCallFF15_Handle(pOpCode, vmstarbaseaddr + 6, (unsigned long long)(&vmcurrentstackstatus), (unsigned long long)(&vmcurrentstackstatus->rax));
 		}
-		vmcurrentstackstatus->rsp = vmcurrentstackstatus->rbp;
+	}
+	break;
+	case 101:	// jmp
+	{
+		// FF E0 → jmp rax: VM exit
+		if (*pOpCode == (unsigned char)'\xFF' && *(pOpCode + 1) == (unsigned char)'\xE0')
+		{
+			vmcurrentstackstatus->rbp = 0;
+		}
 	}
 	break;
 	case 102:	// lea
@@ -921,6 +929,80 @@ void VmCodetoExecDispath(int handlerid, unsigned char* pOpCode, int codelen, uns
 		else if (*pOpCode == (unsigned char)'\xBA')
 		{
 			VmMov_EDXHandle(pOpCode, vmstarbaseaddr, (unsigned long long)(&vmcurrentstackstatus->rdx));
+		}
+		// mov reg, [rsp+disp8]: (48|4C) 8B xx 24 dd
+		else if (*(pOpCode + 1) == (unsigned char)'\x8B' && codelen >= 4 && *(pOpCode + 3) == (unsigned char)'\x24')
+		{
+			unsigned char modrm = *(pOpCode + 2);
+			unsigned char reg_bits = (modrm >> 3) & 7;
+			int rex_r = (*pOpCode & 0x04);		// REX.R
+			unsigned __int64 disp = 0;
+			if ((modrm & 0xC0) == 0x40)			// mod=01 → disp8
+				disp = *(pOpCode + 4);
+			unsigned __int64 val = *(unsigned __int64*)(vmcurrentstackstatus->rsp + disp);
+			int full_reg = reg_bits | (rex_r ? 8 : 0);
+			switch (full_reg) {
+			case 0: vmcurrentstackstatus->rax = val; break;
+			case 1: vmcurrentstackstatus->rcx = val; break;
+			case 2: vmcurrentstackstatus->rdx = val; break;
+			case 3: vmcurrentstackstatus->rbx = val; break;
+			case 8: vmcurrentstackstatus->r8  = val; break;
+			case 9: vmcurrentstackstatus->r9  = val; break;
+			default: break;
+			}
+		}
+	}
+	break;
+	case 105:	// push reg
+	{
+		unsigned __int64 value = 0;
+		if (codelen == 1) {
+			// 50=rax 51=rcx 52=rdx 53=rbx
+			switch (*pOpCode) {
+			case 0x50: value = vmcurrentstackstatus->rax; break;
+			case 0x51: value = vmcurrentstackstatus->rcx; break;
+			case 0x52: value = vmcurrentstackstatus->rdx; break;
+			case 0x53: value = vmcurrentstackstatus->rbx; break;
+			default: break;
+			}
+		}
+		else if (codelen == 2 && *pOpCode == (unsigned char)'\x41') {
+			// 41 50=r8 41 51=r9 41 52=r10 41 53=r11
+			switch (*(pOpCode + 1)) {
+			case 0x50: value = vmcurrentstackstatus->r8;  break;
+			case 0x51: value = vmcurrentstackstatus->r9;  break;
+			case 0x52: value = vmcurrentstackstatus->r10; break;
+			case 0x53: value = vmcurrentstackstatus->r11; break;
+			default: break;
+			}
+		}
+		vmcurrentstackstatus->rsp -= 8;
+		*(unsigned __int64*)(vmcurrentstackstatus->rsp) = value;
+	}
+	break;
+	case 106:	// test
+	{
+		// test rax, rax → set ZF in rflags
+		if (vmcurrentstackstatus->rax == 0)
+			vmcurrentstackstatus->rflags |= (1ULL << 6);	// set ZF
+		else
+			vmcurrentstackstatus->rflags &= ~(1ULL << 6);	// clear ZF
+	}
+	break;
+	case 107:	// jz / je
+	{
+		if (vmcurrentstackstatus->rflags & (1ULL << 6))		// ZF set → jump taken
+		{
+			if (*pOpCode == (unsigned char)'\x74') {
+				// short jz: 74 rel8
+				signed char rel = (signed char)*(pOpCode + 1);
+				vmcurrentstackstatus->vm_ip_byte_delta = 2 + (signed __int64)rel;
+			}
+			else if (*pOpCode == (unsigned char)'\x0F' && *(pOpCode + 1) == (unsigned char)'\x84') {
+				// near jz: 0F 84 rel32
+				signed int rel = *(signed int*)(pOpCode + 2);
+				vmcurrentstackstatus->vm_ip_byte_delta = 6 + (signed __int64)rel;
+			}
 		}
 	}
 	break;
@@ -964,24 +1046,52 @@ int  VmOpcodeAnalHlper(PVOID64 Vmcodeaddr, unsigned char* pOpCode, unsigned int 
 	{
 	case 1:
 	{
-		// 鎻愬彇鎿嶄綔绗?鍜?瀵勫瓨鍣?
 		if (0 == My_stricmp("nop", Hlerp->mnemonic))
 		{
 			return 1;
 		}
-		else if (0 == My_stricmp("ret", Hlerp->mnemonic)) // 鎰忓懗鏀瑰嚱鏁扮粨鏉?
+		else if (0 == My_stricmp("ret", Hlerp->mnemonic))
 		{
 			return 2;
+		}
+		else if (0 == My_stricmp("push", Hlerp->mnemonic))
+		{
+			return 105;
 		}
 	}
 	break;
 	case 2:
-	case 3:
+	{
 		if (0 == My_stricmp("xor", Hlerp->mnemonic))
 		{
 			return 20;
 		}
-		break;
+		else if (0 == My_stricmp("push", Hlerp->mnemonic))
+		{
+			return 105;
+		}
+		else if (0 == My_stricmp("je", Hlerp->mnemonic))
+		{
+			return 107;
+		}
+		else if (0 == My_stricmp("jmp", Hlerp->mnemonic))
+		{
+			return 101;
+		}
+	}
+	break;
+	case 3:
+	{
+		if (0 == My_stricmp("xor", Hlerp->mnemonic))
+		{
+			return 20;
+		}
+		else if (0 == My_stricmp("test", Hlerp->mnemonic))
+		{
+			return 106;
+		}
+	}
+	break;
 	case 4:
 	case 5:
 	case 6:
@@ -1013,6 +1123,10 @@ int  VmOpcodeAnalHlper(PVOID64 Vmcodeaddr, unsigned char* pOpCode, unsigned int 
 		else if (0 == My_stricmp("mov", Hlerp->mnemonic))
 		{
 			return 103;
+		}
+		else if (0 == My_stricmp("je", Hlerp->mnemonic))
+		{
+			return 107;
 		}
 	}
 	break;
@@ -1051,6 +1165,12 @@ DWORD64 VmStart(PVOID64 Vmcodeaddr)
 	x86regNode.rsp = (unsigned __int64)stack + 0x100000 - 8;
 	x86regNode.rbp = (unsigned __int64)stack + 0x100000;
 
+	// Initialize VM registers with original entry arguments
+	x86regNode.rcx = g_EntryArg1;
+	x86regNode.rdx = g_EntryArg2;
+	x86regNode.r8  = g_EntryArg3;
+	x86regNode.r9  = g_EntryArg4;
+
 	// Data鍔犲３杩囩▼涓繚瀛樼殑鏄亸绉籵ffset
 	Hlerp = (ArrayHlerp*)(pVmNode->Hlperdataoffset + m_Dlllpbase);
 
@@ -1086,6 +1206,25 @@ DWORD64 VmStart(PVOID64 Vmcodeaddr)
 			// 鎰忓懗鐫€鎵ц杩噐et.灏嗕笉鍐嶇嚎鎬ф墽琛?
 			if (x86regNode.rbp == 0)
 				break;
+
+			// Jump resolution: search for target instruction by startoffset
+			if (x86regNode.vm_ip_byte_delta != 0)
+			{
+				unsigned int target_offset = (unsigned int)((signed __int64)Hlerp->startoffset + x86regNode.vm_ip_byte_delta);
+				x86regNode.vm_ip_byte_delta = 0;
+				ArrayHlerp* baseHlerp = (ArrayHlerp*)(pVmNode->Hlperdataoffset + m_Dlllpbase);
+				for (size_t j = 0; j < pVmNode->Vmencodeasmlen; ++j)
+				{
+					if (baseHlerp[j].startoffset == target_offset)
+					{
+						i = j - 1;		// for-loop will ++i
+						Hlerp = &baseHlerp[j];
+						VmcodeStartaddr = m_Dlllpbase + pVmNode->VmAddroffset + target_offset;
+						break;
+					}
+				}
+				continue;
+			}
 		}
 		else
 		{
