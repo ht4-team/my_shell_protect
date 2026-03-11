@@ -10,6 +10,7 @@ extern FILE* fpVmFile;
 extern _VmNode* g_Vm;
 extern char* g_dataHlpers;
 extern DWORD64 g_dataoffset;
+bool g_DebugMode = false;
 
 Capstone::Capstone()
 {
@@ -171,7 +172,18 @@ void Capstone::AnalyOpcodeHlper(const void* pAddr, int nLen)
 	}
 	// 恢复指针,否则保存到文件的则是循环后的指针
 	g_Vm->Hlperdataoffset = g_dataoffset;
-	// fclose(fpVmFile);
+
+	if (g_DebugMode) {
+		fprintf(stderr, "[debug] Capstone disassembled %d instructions for VM encryption:\n", nLen);
+		ArrayHlerp* dbgHlp = (ArrayHlerp*)g_dataHlpers;
+		for (int i = 0; i < nLen; ++i) {
+			fprintf(stderr, "[debug]   [%d] %-6s  size=%-2u  xor=0x%02X  enc=%u  offset=0x%X\n",
+				i, dbgHlp[i].mnemonic, dbgHlp[i].bytesize,
+				dbgHlp[i].xorKey, dbgHlp[i].encodeflag, dbgHlp[i].startoffset);
+		}
+		fflush(stderr);
+	}
+
 	printf("\n");
 	// 释放动态分配的空间
 	delete[] pOpCode;

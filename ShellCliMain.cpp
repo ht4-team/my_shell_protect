@@ -5,11 +5,16 @@
 #include "UnShell.h"
 #include "puPEinfoData.h"
 #include "studData.h"
+#include "CombatShell/CombatShell.h"
 
 #include <stdio.h>
 
 CString UnShllerProcPath;
 char g_CombatShellDataLocalFile[MAX_PATH] = { 0 };
+extern bool g_DebugMode;
+extern _Stud* g_stu;
+extern _VmNode* g_Vm;
+extern char* g_dataHlpers;
 
 namespace {
 constexpr const char* kNewSectionName = ".VMP";
@@ -26,8 +31,11 @@ bool FixPeChecksum(const CString& path);
 void PrintUsage() {
 	wprintf(
 		L"Usage:\n"
-		L"  CombatShellCli.exe pack <target.exe>\n"
+		L"  CombatShellCli.exe pack <target.exe> [--debug]\n"
 		L"  CombatShellCli.exe unpack <target.exe>\n"
+		L"\\n"
+		L"Options:\n"
+		L"  --debug    Print VM instruction and packed section diagnostics\n"
 		L"\\n"
 		L"Notes:\n"
 		L"  - Keep CombatShell.dll in the same directory as the executable.\n"
@@ -120,6 +128,47 @@ bool AddNewSectionAndUpdateOep(const CString& targetPath, DWORD& oldOep) {
 	return ok == TRUE;
 }
 
+void PrintDebugPackInfo() {
+	if (!g_DebugMode)
+		return;
+
+	fprintf(stderr, "\n[debug] === VM Instruction Virtualization ===\n");
+	if (g_Vm && g_Vm->VmCount > 0 && g_Vm->Vmencodeasmlen > 0) {
+		fprintf(stderr, "[debug] VM segments: %u, instructions: %u, code RVA offset: 0x%X\n",
+			g_Vm->VmCount, g_Vm->Vmencodeasmlen, g_Vm->VmAddroffset);
+		fprintf(stderr, "[debug] metadata RVA offset: 0x%X\n", g_Vm->Hlperdataoffset);
+
+		if (g_dataHlpers) {
+			ArrayHlerp* hlp = (ArrayHlerp*)g_dataHlpers;
+			fprintf(stderr, "[debug]  %-4s %-10s %-10s %-6s %-6s %s\n",
+				"#", "offset", "size", "xor", "enc", "mnemonic");
+			for (unsigned int i = 0; i < g_Vm->Vmencodeasmlen; ++i) {
+				fprintf(stderr, "[debug]  %-4u 0x%08X %-10u 0x%04X %-6u %s\n",
+					i, hlp[i].startoffset, hlp[i].bytesize,
+					hlp[i].xorKey, hlp[i].encodeflag, hlp[i].mnemonic);
+			}
+		}
+	} else {
+		fprintf(stderr, "[debug] VM: disabled (VmCount=0)\n");
+	}
+
+	fprintf(stderr, "\n[debug] === Packed Sections ===\n");
+	if (g_stu) {
+		fprintf(stderr, "[debug] OEP RVA: 0x%llX\n", (unsigned long long)g_stu->s_dwOepBase);
+		fprintf(stderr, "[debug] section count (original): %llu\n",
+			(unsigned long long)g_stu->s_SectionCount);
+		fprintf(stderr, "[debug] compression section RVA: 0x%llX\n",
+			(unsigned long long)g_stu->s_CompressionSectionRva);
+		fprintf(stderr, "[debug]  %-4s %-12s %-12s\n", "#", "rawSize", "compressLen");
+		for (DWORD i = 0; i + 2 < (DWORD)g_stu->s_SectionCount; ++i) {
+			fprintf(stderr, "[debug]  %-4u 0x%08X   0x%08X\n",
+				i, g_stu->s_SectionOffsetAndSize[i][0], g_stu->s_blen[i]);
+		}
+	}
+	fprintf(stderr, "\n");
+	fflush(stderr);
+}
+
 bool RunCompatPack(const CString& inputPath) {
 	DWORD oldOep = 0;
 	if (!AddNewSectionAndUpdateOep(inputPath, oldOep)) {
@@ -176,6 +225,8 @@ bool RunLegacyPackCore(const CString& inputPath, const CString& targetDirectory)
 		fflush(stderr);
 		return false;
 	}
+
+	PrintDebugPackInfo();
 
 	fprintf(stderr, "[legacy] step=finalize\n");
 	fflush(stderr);
@@ -498,6 +549,14 @@ int wmain(int argc, wchar_t* argv[]) {
 
 	const wchar_t* command = argv[1];
 	const wchar_t* target = argv[2];
+
+	// Parse optional flags
+	for (int i = 3; i < argc; ++i) {
+		if (_wcsicmp(argv[i], L"--debug") == 0) {
+			g_DebugMode = true;
+		}
+	}
+
 	if (!FileExists(target)) {
 		fwprintf(stderr, L"target not found: %ls\n", target);
 		return 2;
