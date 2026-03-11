@@ -1,6 +1,12 @@
 .code
 EXTERN LZ4_decompress_safe:PROC
 EXTERN CombatShellEntryImpl:PROC
+EXTERN VmEntryImpl:PROC
+EXTERN g_VmOepResult:QWORD
+EXTERN g_EntryArg1:QWORD
+EXTERN g_EntryArg2:QWORD
+EXTERN g_EntryArg3:QWORD
+EXTERN g_EntryArg4:QWORD
     start:
 ;--------------------------------------------------------
 CombatShellEntry PROC EXPORT
@@ -700,5 +706,47 @@ VmAdd_RspHandle PROC
 	pop		rax
 	ret
 VmAdd_RspHandle ENDP
+
+;--------------------------------------------------------
+;	VM-friendly entry: only 4 instructions with existing handlers
+;--------------------------------------------------------
+CombatShellEntry_Vm PROC EXPORT
+	sub		rsp, 28h
+	call	CombatShellEntryImpl
+	add		rsp, 28h
+	ret
+CombatShellEntry_Vm ENDP
+
+;--------------------------------------------------------
+;	VmEntry: asm stub called as PE entry point
+;	Saves original args -> calls VmEntryImpl (C) -> jumps to OEP
+;--------------------------------------------------------
+VmEntry PROC EXPORT
+	; Save original entry arguments to globals
+	mov		qword ptr [g_EntryArg1], rcx
+	mov		qword ptr [g_EntryArg2], rdx
+	mov		qword ptr [g_EntryArg3], r8
+	mov		qword ptr [g_EntryArg4], r9
+
+	; Call VmEntryImpl with standard x64 shadow space
+	sub		rsp, 28h
+	call	VmEntryImpl
+	add		rsp, 28h
+
+	; OEP is in g_VmOepResult
+	mov		rax, qword ptr [g_VmOepResult]
+	test	rax, rax
+	jz		_VmEntryRet
+
+	; Restore original entry arguments and jump to OEP
+	mov		rcx, qword ptr [g_EntryArg1]
+	mov		rdx, qword ptr [g_EntryArg2]
+	mov		r8, qword ptr [g_EntryArg3]
+	mov		r9, qword ptr [g_EntryArg4]
+	jmp		rax
+
+_VmEntryRet:
+	ret
+VmEntry ENDP
 
 end

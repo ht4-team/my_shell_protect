@@ -18,6 +18,11 @@ char*			g_dataHlpers = nullptr;
 DWORD64			g_dataoffset = 0;
 extern char		g_CombatShellDataLocalFile[MAX_PATH];
 
+// Preserved LOAD_CONFIG fields for the PE loader (filled by CleanDirectData,
+// consumed by CopyStud to write a stub into .VMP spare space).
+DWORD   g_LoadConfigOrigSize = 0;
+DWORD64 g_LoadConfigSecurityCookie = 0;
+
 CompressionData::CompressionData()
 {
 }
@@ -55,25 +60,18 @@ VOID CompressionData::ReFileInit()
 // 压缩区段之前 Vmencode
 void CompressionData::VmcodeEntry(char* TargetCode, _Out_ int &CodeLength)
 {
-#ifdef _WIN64
-	// x64 VM flow is unstable for some real-world GUI samples (e.g. calc launcher).
-	// Keep shelling/compression path and skip VM instrumentation to guarantee OEP transfer.
-	g_Vm->VmCount = 0;
-	g_Vm->VmAddroffset = 0;
-	g_Vm->Vmencodeasmlen = 0;
-	g_Vm->Hlperdataoffset = 0;
-	return;
-#endif
-
 	// 这里写入需要加密多少次,或者代码段Asm
 	int vm_len = 1;
 	// write: 0. 写入一共VM加密多少代码段
 	g_Vm->VmCount = vm_len;
-	// fwrite(&vm_len, sizeof(int), 1, fpVmFile);
 
 	DWORD64 Offset = 0;
 	// 获取VM的起始地址
+#ifdef _WIN64
+	DWORD64 Vmencodeaddr = (DWORD64)GetProcAddress((HMODULE)m_studBase, "CombatShellEntry_Vm");
+#else
 	DWORD64 Vmencodeaddr = (DWORD64)GetProcAddress((HMODULE)m_studBase, "CombatShellEntry");
+#endif
 	if (!Vmencodeaddr)
 		return;
 	PIMAGE_SECTION_HEADER studSection = SinglePuPEInfo::instance()->puGetSectionAddress((char *)m_studBase, (BYTE *)".text");
@@ -89,16 +87,14 @@ void CompressionData::VmcodeEntry(char* TargetCode, _Out_ int &CodeLength)
 #else
 	Offset = (DWORD)Vmencodeaddr - (DWORD)m_studBase - studSection->VirtualAddress + SurceBase->VirtualAddress;
 #endif
-	/*
-		线性反汇编来求大小
-	*/
 	// write: 1. offset -- 汇编指令
 	g_Vm->VmAddroffset = Offset;
-	// fwrite(&Offset, sizeof(DWORD64), 1, fpVmFile);
+#ifdef _WIN64
+	vm_len = 4;		// CombatShellEntry_Vm has exactly 4 instructions: sub/call/add/ret
+#else
 	vm_len = 82;		// 固定的需要人工去看反汇编多少行,ida中看一下,不智能
+#endif
 	g_Vm->Vmencodeasmlen = vm_len;
-	// fwrite(&vm_len, sizeof(int), 1, fpVmFile);
-	// fflush(fpVmFile);
 	VM vmobj;
 	vmobj.VmEntry((PVOID64)Vmencodeaddr, vm_len);
 }
@@ -176,6 +172,34 @@ BOOL CompressionData::CompressSectionData()
 #endif
 	if (!pNt)
 		return false;
+
+	// Save LOAD_CONFIG fields from the ORIGINAL PE before compression
+	// rearranges the section data.  The SecurityCookie and Size are
+	// needed by CopyStud to write a loader-visible stub into .VMP.
+#ifdef _WIN64
+	{
+		extern DWORD   g_LoadConfigOrigSize;
+		extern DWORD64 g_LoadConfigSecurityCookie;
+		g_LoadConfigOrigSize = 0;
+		g_LoadConfigSecurityCookie = 0;
+		const IMAGE_DATA_DIRECTORY& lcDir = pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG];
+		if (lcDir.VirtualAddress && lcDir.Size >= 0x60) {
+			// Convert RVA to file offset using section table.
+			PIMAGE_SECTION_HEADER sec = IMAGE_FIRST_SECTION(pNt);
+			for (DWORD si = 0; si < pNt->FileHeader.NumberOfSections; ++si, ++sec) {
+				if (sec->SizeOfRawData == 0) continue;
+				if (lcDir.VirtualAddress >= sec->VirtualAddress &&
+					lcDir.VirtualAddress < sec->VirtualAddress + sec->SizeOfRawData) {
+					DWORD fileOff = sec->PointerToRawData + (lcDir.VirtualAddress - sec->VirtualAddress);
+					const BYTE* lcData = (const BYTE*)m_lpBase + fileOff;
+					g_LoadConfigOrigSize = *(const DWORD*)lcData;
+					g_LoadConfigSecurityCookie = *(const DWORD64*)(lcData + 0x58);
+					break;
+				}
+			}
+		}
+	}
+#endif
 
 	DWORD dSectionCount = pNt->FileHeader.NumberOfSections;
 	PIMAGE_SECTION_HEADER psection = (PIMAGE_SECTION_HEADER)m_SectionHeadre;
@@ -417,6 +441,14 @@ BOOL CompressionData::CleanDirectData(const char* NewAddress, const DWORD & Comp
 	PIMAGE_DATA_DIRECTORY pDirectory = (PIMAGE_DATA_DIRECTORY)pNt->OptionalHeader.DataDirectory;
 	if (!pDirectory)
 		return false;
+
+	// Save LOAD_CONFIG fields before zeroing directories.
+	// The PE loader on x64 Windows 10+ rejects the image if
+	// IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG is absent for binaries
+	// compiled with security features.  CopyStud will write a
+	// minimal LOAD_CONFIG stub into .VMP spare space.
+	// NOTE: already populated from CompressSectionData before
+	// the section data was rearranged.
 
 	DWORD dwSectionCount = pNt->FileHeader.NumberOfSections;
 	g_stu->s_SectionCount = dwSectionCount;

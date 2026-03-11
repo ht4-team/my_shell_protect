@@ -297,6 +297,11 @@ extern "C" {
 
 	void __stdcall VmAdd_RspHandle(unsigned char* opcode, unsigned __int64 regaddr);
 	void __stdcall VmRet_Handle(unsigned char* opcode, unsigned __int64 addr);
+
+	// VM entry and globals
+	DWORD64 WINAPI VmEntryImpl();
+	extern DWORD64 g_VmOepResult;
+	extern int g_VmActive;
 }
 #else
 	DWORD puGetModule(const DWORD Hash);

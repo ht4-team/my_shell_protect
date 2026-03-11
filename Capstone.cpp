@@ -101,7 +101,11 @@ int Capstone::AnalyencodeVmHlper(cs_insn* ins, unsigned int rankey)
 		0 == _stricmp(ins->mnemonic, "jmp")		||
 		0 == _stricmp(ins->mnemonic, "call")	||
 		0 == _stricmp(ins->mnemonic, "lea")		||
-		0 == _stricmp(ins->mnemonic, "sub")
+		0 == _stricmp(ins->mnemonic, "sub")		||
+		0 == _stricmp(ins->mnemonic, "add")		||
+		0 == _stricmp(ins->mnemonic, "ret")		||
+		0 == _stricmp(ins->mnemonic, "xor")		||
+		0 == _stricmp(ins->mnemonic, "nop")
 		)
 	{
 		for (size_t i = 0; i < ins->size; i++)

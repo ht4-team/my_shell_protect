@@ -102,9 +102,11 @@ BOOL studData::LoadLibraryStud()
 	}
 	// 获取dll的导出函数
 #ifdef _WIN64
-	dexportAddress = GetProcAddress((HMODULE)m_studBase, "CombatShellEntry");
-	if (!dexportAddress) {
+	if (g_Vm && g_Vm->VmCount > 0) {
 		dexportAddress = GetProcAddress((HMODULE)m_studBase, "VmEntry");
+	}
+	if (!dexportAddress) {
+		dexportAddress = GetProcAddress((HMODULE)m_studBase, "CombatShellEntry");
 	}
 #else
 	dexportAddress = GetProcAddress((HMODULE)m_studBase, "CombatShellEntry");
@@ -220,20 +222,11 @@ BOOL studData::CopyStud()
 
 	// Force FileAlignment to 0x200 so the compact section layout
 	// (PTRD values at 0x200 multiples) is valid for any source PE.
-	// Also fix SizeOfHeaders to match.
+	// Keep SizeOfHeaders unchanged — the original value is already aligned
+	// to the new FA (any valid FA is a multiple of 0x200) and reducing it
+	// creates a gap the PE loader rejects for some binaries (0xC000007B).
 	if (pNt->OptionalHeader.FileAlignment > 0x200) {
 		pNt->OptionalHeader.FileAlignment = 0x200;
-	}
-	{
-		DWORD hdrsEnd = (DWORD)(
-			((PIMAGE_DOS_HEADER)m_lpBase)->e_lfanew + 24 +
-			pNt->FileHeader.SizeOfOptionalHeader +
-			pNt->FileHeader.NumberOfSections * sizeof(IMAGE_SECTION_HEADER));
-		DWORD fa = pNt->OptionalHeader.FileAlignment;
-		DWORD newSoh = (hdrsEnd + fa - 1) & ~(fa - 1);
-		if (newSoh < pNt->OptionalHeader.SizeOfHeaders) {
-			pNt->OptionalHeader.SizeOfHeaders = newSoh;
-		}
 	}
 
 	// Write a minimal Import Table into spare .VMP space so the Windows
@@ -287,6 +280,46 @@ BOOL studData::CopyStud()
 			pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IAT].Size = 2 * ptrSize;
 		}
 	}
+
+	// Write a minimal LOAD_CONFIG stub into .VMP spare space so the PE
+	// loader does not reject the image with STATUS_INVALID_IMAGE_FORMAT.
+	// On x64 Windows 10+, binaries compiled with /GS (security cookie)
+	// MUST present a valid LOAD_CONFIG directory or the loader refuses to
+	// map the image.
+#ifdef _WIN64
+	{
+		extern DWORD   g_LoadConfigOrigSize;
+		extern DWORD64 g_LoadConfigSecurityCookie;
+		if (g_LoadConfigOrigSize > 0) {
+			DWORD shellSize = studSection->Misc.VirtualSize;
+			DWORD importOff2 = (shellSize + 15) & ~15;
+			// Skip past import table that was already written above.
+			DWORD afterImport = importOff2 + 56 + 4 * 8 + 14; // same totalNeeded as above for x64
+			DWORD lcOff = (afterImport + 15) & ~15;  // align to 16
+			DWORD vmpVA  = SurceBase->VirtualAddress;
+			DWORD lcRva  = vmpVA + lcOff;
+			// LOAD_CONFIG stub (0x60) + cookie slot (8 bytes)
+			const DWORD lcStubSize = 0x60;
+			const DWORD cookieSlotOff = lcOff + lcStubSize;  // right after the stub
+			const DWORD cookieSlotRva = vmpVA + cookieSlotOff;
+			const DWORD totalLC = lcStubSize + 8;
+			if (lcOff + totalLC <= SurceBase->SizeOfRawData) {
+				BYTE* lcBase = (BYTE*)m_lpBase + SurceBase->PointerToRawData + lcOff;
+				memset(lcBase, 0, totalLC);
+				// LOAD_CONFIG struct
+				*(DWORD*)lcBase = g_LoadConfigOrigSize;  // Size field
+				// SecurityCookie pointer → our cookie slot in .VMP
+				DWORD64 imageBase = pNt->OptionalHeader.ImageBase;
+				*(DWORD64*)(lcBase + 0x58) = imageBase + cookieSlotRva;
+				// Cookie VALUE (non-zero default; CRT reinitializes at OEP)
+				*(DWORD64*)(lcBase + lcStubSize) = 0x00002B992DDFA232ULL;
+
+				pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG].VirtualAddress = lcRva;
+				pNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG].Size = g_LoadConfigOrigSize;
+			}
+		}
+	}
+#endif
 
 	HANDLE hFile = SinglePuPEInfo::instance()->puFileHandle();
 	if (!hFile || hFile == INVALID_HANDLE_VALUE)

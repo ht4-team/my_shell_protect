@@ -21,10 +21,6 @@ static TCHAR szWindowClass[] = TEXT("CombatShellWnd");
 // DLL_ImageBase
 #ifdef _WIN64
 DWORD64 m_Dlllpbase = 0x140000000;
-DWORD64 g_EntryArg1 = 0;
-DWORD64 g_EntryArg2 = 0;
-DWORD64 g_EntryArg3 = 0;
-DWORD64 g_EntryArg4 = 0;
 #else
 DWORD m_Dlllpbase = 0x400000;
 #endif
@@ -39,12 +35,17 @@ extern "C" {
 	DllExport VmNode g_VmNode = { 0, };
 	DllExport char g_dataHlper[0x2048] = { 0, };
 #ifdef _WIN64
+	DWORD64 g_EntryArg1 = 0;
+	DWORD64 g_EntryArg2 = 0;
+	DWORD64 g_EntryArg3 = 0;
+	DWORD64 g_EntryArg4 = 0;
+	DWORD64 g_VmOepResult = 0;
+	int g_VmActive = 0;
 	DllExport void WINAPI CombatShellEntry(void* entryArg1, void* entryArg2, void* entryArg3, void* entryArg4);
+	DllExport void WINAPI CombatShellEntry_Vm();
+	DllExport void WINAPI VmEntry();
 #else
 	DllExport void WINAPI CombatShellEntry();
-#endif
-#ifdef _WIN64
-	DllExport void WINAPI VmEntry();
 #endif
 }
 
@@ -679,10 +680,12 @@ static DWORD WINAPI CombatShellEntryImpl()
 #endif
 {
 #ifdef _WIN64
-	g_EntryArg1 = (DWORD64)entryArg1;
-	g_EntryArg2 = (DWORD64)entryArg2;
-	g_EntryArg3 = (DWORD64)entryArg3;
-	g_EntryArg4 = (DWORD64)entryArg4;
+	if (!g_VmActive) {
+		g_EntryArg1 = (DWORD64)entryArg1;
+		g_EntryArg2 = (DWORD64)entryArg2;
+		g_EntryArg3 = (DWORD64)entryArg3;
+		g_EntryArg4 = (DWORD64)entryArg4;
+	}
 	g_stud.s_Krenel32 = ResolveKernel32ByPebX64();
 	if (!g_stud.s_Krenel32)
 		return 0;
@@ -1019,7 +1022,7 @@ int  VmOpcodeAnalHlper(PVOID64 Vmcodeaddr, unsigned char* pOpCode, unsigned int 
 	return 0;
 }
 
-int VmStart(PVOID64 Vmcodeaddr)
+DWORD64 VmStart(PVOID64 Vmcodeaddr)
 {
 	if (!Vmcodeaddr)
 		return 0;
@@ -1045,7 +1048,7 @@ int VmStart(PVOID64 Vmcodeaddr)
 		return 0;
 
 	// 鍒濆鍖朇urrent_Vmstack
-	x86regNode.rsp = (unsigned __int64)stack + 0x100000;
+	x86regNode.rsp = (unsigned __int64)stack + 0x100000 - 8;
 	x86regNode.rbp = (unsigned __int64)stack + 0x100000;
 
 	// Data鍔犲３杩囩▼涓繚瀛樼殑鏄亸绉籵ffset
@@ -1096,44 +1099,57 @@ int VmStart(PVOID64 Vmcodeaddr)
 
 	// 閿€姣佹爤
 	if (stack)
-		Myfree(stack);
-	return 1;
+		MyVirtualFree((LPVOID)stack, 0, MEM_RELEASE);
+	return x86regNode.rax;
 }
 
-// Unit Test.
-void WINAPI VmEntry()
+// VM entry point implementation — called from asm VmEntry stub.
+// Resolves runtime APIs needed by VmStart, then runs the VM loop.
+extern "C" DWORD64 WINAPI VmEntryImpl()
 {
-	/*
-		1. 浣跨敤鍏ㄥ眬鍙橀噺淇濆瓨鍔犲瘑鍦板潃鍒楄〃,鍦板潃琚鍙?铏氭嫙鏈烘墽琛?
-		2. 姝ｅ父铏氭嫙鏈轰細鏈変竴濂楃被浼间簬鏂偣 eip == VmcodeAddr锛屾帶鍒秂ip杞崲鍒拌櫄鎷熸満鎵ц.
-		3. 绀轰緥鏄竴娆℃€ц櫄鎷熸満,涔熷氨鏄澹砿ain鍑芥暟鍏╒Mcode鍔犲瘑.
-	*/
+	// Resolve kernel32 via PEB walk
+	g_stud.s_Krenel32 = ResolveKernel32ByPebX64();
+	if (!g_stud.s_Krenel32)
+		return 0;
 
-	puGetModule(0x228C4218, &g_stud.s_Krenel32);
+	// Get LoadLibraryExA
 	MyLoadLibraryExA = (FnLoadLibraryExA)puGetProcAddress(g_stud.s_Krenel32, 0xC0D83287);
-	// msvcrt.dll
+	if (!MyLoadLibraryExA)
+		return 0;
+
+	// Load msvcrt.dll for VM runtime dependencies
 	g_stud.s_msvcr100 = (DWORD64)MyLoadLibraryExA("msvcrt.dll", NULL, NULL);
+	if (!g_stud.s_msvcr100)
+		return 0;
+
+	// Load user32.dll (needed by CombatShellEntryImpl via VM call)
 	g_stud.s_User32 = (DWORD64)MyLoadLibraryExA("user32.dll", NULL, NULL);
-	Myfopen = (Fnfopen)puGetProcAddress(g_stud.s_msvcr100, 0xCBC37ECE);
-	Myfread = (Fnfread)puGetProcAddress(g_stud.s_msvcr100, 0xC39796C4);
+
+	// Resolve VM runtime dependencies from msvcrt
 	Myfree = (Fnfree)puGetProcAddress(g_stud.s_msvcr100, 0xCBCB3065);
 	Mymalloc = (Fnmalloc)puGetProcAddress(g_stud.s_msvcr100, 0x7FB36681);
 	Mymemset = (Fnmemset)puGetProcAddress(g_stud.s_msvcr100, 0x6BCF6ED2);
-	Mymemcpy = (Fnmemcpy)puGetProcAddress(g_stud.s_msvcr100, 0x818F6ED7);
 	My_stricmp = (FnMy_stricmp)puGetProcAddress(g_stud.s_msvcr100, 0x787ECF9F);
 	Mymemmove = (Fnmemmove)puGetProcAddress(g_stud.s_msvcr100, 0xA8FF6F42);
-	My_strnicmp = (Fn_strnicmp)puGetProcAddress(g_stud.s_msvcr100, 0x38C92E5F);
+
+	// Resolve VirtualAlloc/VirtualFree from kernel32
 	MyVirtualAlloc = (FnVirtualAlloc)puGetProcAddress(g_stud.s_Krenel32, 0x1EDE5967);
 	MyVirtualFree = (FnVirtualFree)puGetProcAddress(g_stud.s_Krenel32, 0x6144AA05);
-	MyGetModuleHandleW = (FnGetModuleHandleW)puGetProcAddress(g_stud.s_Krenel32, 0xF4E2F2C8);
-	// g_stud.s_User32 = (DWORD64)MyGetModuleHandleW(L"user32.dll");
-	g_hInstance = (HINSTANCE)MyGetModuleHandleW(NULL);
-	m_Dlllpbase = (DWORD64)g_hInstance;
 
-	// x64 runtime always uses the direct shell restoration path.
-	// VM metadata is optional and may be absent for stable pack output.
-	CombatShellEntry((void*)g_EntryArg1, (void*)g_EntryArg2, (void*)g_EntryArg3, (void*)g_EntryArg4);
-	return;
+	// Set DLL base
+	MyGetModuleHandleW = (FnGetModuleHandleW)puGetProcAddress(g_stud.s_Krenel32, 0xF4E2F2C8);
+	if (MyGetModuleHandleW)
+		m_Dlllpbase = (DWORD64)MyGetModuleHandleW(NULL);
+
+	// Set VM active flag — protects g_EntryArg1-4 in CombatShellEntryImpl
+	g_VmActive = 1;
+
+	// Run VM: executes encrypted CombatShellEntry_Vm instructions
+	DWORD64 oep = VmStart(&g_VmNode);
+
+	// Store and return OEP
+	g_VmOepResult = oep;
+	return oep;
 }
 
 #endif
