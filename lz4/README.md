@@ -1,69 +1,121 @@
-LZ4 Windows binary package
-====================================
+LZ4 - Extremely fast compression
+================================
 
-#### The package contents
+LZ4 is lossless compression algorithm,
+providing compression speed > 500 MB/s per core,
+scalable with multi-cores CPU.
+It features an extremely fast decoder,
+with speed in multiple GB/s per core,
+typically reaching RAM speed limits on multi-core systems.
 
-- `lz4.exe`                  : Command Line Utility, supporting gzip-like arguments
-- `dll\liblz4.dll`           : The DLL of LZ4 library
-- `dll\liblz4.lib`           : The import library of LZ4 library for Visual C++
-- `example\`                 : The example of usage of LZ4 library
-- `include\`                 : Header files required with LZ4 library
-- `static\liblz4_static.lib` : The static LZ4 library
+Speed can be tuned dynamically, selecting an "acceleration" factor
+which trades compression ratio for faster speed.
+On the other end, a high compression derivative, LZ4_HC, is also provided,
+trading CPU time for improved compression ratio.
+All versions feature the same decompression speed.
+
+LZ4 is also compatible with [dictionary compression](https://github.com/facebook/zstd#the-case-for-small-data-compression),
+both at [API](https://github.com/lz4/lz4/blob/v1.8.3/lib/lz4frame.h#L481) and [CLI](https://github.com/lz4/lz4/blob/v1.8.3/programs/lz4.1.md#operation-modifiers) levels.
+It can ingest any input file as dictionary, though only the final 64KB are used.
+This capability can be combined with the [Zstandard Dictionary Builder](https://github.com/facebook/zstd/blob/v1.3.5/programs/zstd.1.md#dictionary-builder),
+in order to drastically improve compression performance on small files.
 
 
-#### Usage of Command Line Interface
+LZ4 library is provided as open-source software using BSD 2-Clause license.
 
-Command Line Interface (CLI) supports gzip-like arguments.
-By default CLI takes an input file and compresses it to an output file:
+
+|Branch      |Status   |
+|------------|---------|
+|master      | [![Build Status][travisMasterBadge]][travisLink] [![Build status][AppveyorMasterBadge]][AppveyorLink] [![coverity][coverBadge]][coverlink] |
+|dev         | [![Build Status][travisDevBadge]][travisLink]    [![Build status][AppveyorDevBadge]][AppveyorLink]                                         |
+
+[travisMasterBadge]: https://travis-ci.org/lz4/lz4.svg?branch=master "Continuous Integration test suite"
+[travisDevBadge]: https://travis-ci.org/lz4/lz4.svg?branch=dev "Continuous Integration test suite"
+[travisLink]: https://travis-ci.org/lz4/lz4
+[AppveyorMasterBadge]: https://ci.appveyor.com/api/projects/status/github/lz4/lz4?branch=master&svg=true "Windows test suite"
+[AppveyorDevBadge]: https://ci.appveyor.com/api/projects/status/github/lz4/lz4?branch=dev&svg=true "Windows test suite"
+[AppveyorLink]: https://ci.appveyor.com/project/YannCollet/lz4-1lndh
+[coverBadge]: https://scan.coverity.com/projects/4735/badge.svg "Static code analysis of Master branch"
+[coverlink]: https://scan.coverity.com/projects/4735
+
+> **Branch Policy:**
+> - The "master" branch is considered stable, at all times.
+> - The "dev" branch is the one where all contributions must be merged
+    before being promoted to master.
+>   + If you plan to propose a patch, please commit into the "dev" branch,
+      or its own feature branch.
+      Direct commit to "master" are not permitted.
+
+Benchmarks
+-------------------------
+
+The benchmark uses [lzbench], from @inikep
+compiled with GCC v8.2.0 on Linux 64-bits (Ubuntu 4.18.0-17).
+The reference system uses a Core i7-9700K CPU @ 4.9GHz (w/ turbo boost).
+Benchmark evaluates the compression of reference [Silesia Corpus]
+in single-thread mode.
+
+[lzbench]: https://github.com/inikep/lzbench
+[Silesia Corpus]: http://sun.aei.polsl.pl/~sdeor/index.php?page=silesia
+
+|  Compressor             | Ratio   | Compression | Decompression |
+|  ----------             | -----   | ----------- | ------------- |
+|  memcpy                 |  1.000  | 13700 MB/s  |  13700 MB/s   |
+|**LZ4 default (v1.9.0)** |**2.101**| **780 MB/s**| **4970 MB/s** |
+|  LZO 2.09               |  2.108  |   670 MB/s  |    860 MB/s   |
+|  QuickLZ 1.5.0          |  2.238  |   575 MB/s  |    780 MB/s   |
+|  Snappy 1.1.4           |  2.091  |   565 MB/s  |   1950 MB/s   |
+| [Zstandard] 1.4.0 -1    |  2.883  |   515 MB/s  |   1380 MB/s   |
+|  LZF v3.6               |  2.073  |   415 MB/s  |    910 MB/s   |
+| [zlib] deflate 1.2.11 -1|  2.730  |   100 MB/s  |    415 MB/s   |
+|**LZ4 HC -9 (v1.9.0)**   |**2.721**|    41 MB/s  | **4900 MB/s** |
+| [zlib] deflate 1.2.11 -6|  3.099  |    36 MB/s  |    445 MB/s   |
+
+[zlib]: http://www.zlib.net/
+[Zstandard]: http://www.zstd.net/
+
+LZ4 is also compatible and optimized for x32 mode,
+for which it provides additional speed performance.
+
+
+Installation
+-------------------------
+
 ```
-    Usage: lz4 [arg] [input] [output]
+make
+make install     # this command may require root permissions
 ```
-The full list of commands for CLI can be obtained with `-h` or `-H`. The ratio can
-be improved with commands from `-3` to `-16` but higher levels also have slower
-compression. CLI includes in-memory compression benchmark module with compression
-levels starting from `-b` and ending with `-e` with iteration time of `-i` seconds.
-CLI supports aggregation of parameters i.e. `-b1`, `-e18`, and `-i1` can be joined
-into `-b1e18i1`.
+
+LZ4's `Makefile` supports standard [Makefile conventions],
+including [staged installs], [redirection], or [command redefinition].
+It is compatible with parallel builds (`-j#`).
+
+[Makefile conventions]: https://www.gnu.org/prep/standards/html_node/Makefile-Conventions.html
+[staged installs]: https://www.gnu.org/prep/standards/html_node/DESTDIR.html
+[redirection]: https://www.gnu.org/prep/standards/html_node/Directory-Variables.html
+[command redefinition]: https://www.gnu.org/prep/standards/html_node/Utilities-in-Makefiles.html
 
 
-#### The example of usage of static and dynamic LZ4 libraries with gcc/MinGW
+Documentation
+-------------------------
 
-Use `cd example` and `make` to build `fullbench-dll` and `fullbench-lib`.
-`fullbench-dll` uses a dynamic LZ4 library from the `dll` directory.
-`fullbench-lib` uses a static LZ4 library from the `lib` directory.
+The raw LZ4 block compression format is detailed within [lz4_Block_format].
 
+Arbitrarily long files or data streams are compressed using multiple blocks,
+for streaming requirements. These blocks are organized into a frame,
+defined into [lz4_Frame_format].
+Interoperable versions of LZ4 must also respect the frame format.
 
-#### Using LZ4 DLL with gcc/MinGW
-
-The header files from `include\` and the dynamic library `dll\liblz4.dll`
-are required to compile a project using gcc/MinGW.
-The dynamic library has to be added to linking options.
-It means that if a project that uses LZ4 consists of a single `test-dll.c`
-file it should be linked with `dll\liblz4.dll`. For example:
-```
-    gcc $(CFLAGS) -Iinclude\ test-dll.c -o test-dll dll\liblz4.dll
-```
-The compiled executable will require LZ4 DLL which is available at `dll\liblz4.dll`.
+[lz4_Block_format]: doc/lz4_Block_format.md
+[lz4_Frame_format]: doc/lz4_Frame_format.md
 
 
-#### The example of usage of static and dynamic LZ4 libraries with Visual C++
+Other source versions
+-------------------------
 
-Open `example\fullbench-dll.sln` to compile `fullbench-dll` that uses a
-dynamic LZ4 library from the `dll` directory. The solution works with Visual C++
-2010 or newer. When one will open the solution with Visual C++ newer than 2010
-then the solution will upgraded to the current version.
+Beyond the C reference source,
+many contributors have created versions of lz4 in multiple languages
+(Java, C#, Python, Perl, Ruby, etc.).
+A list of known source ports is maintained on the [LZ4 Homepage].
 
-
-#### Using LZ4 DLL with Visual C++
-
-The header files from `include\` and the import library `dll\liblz4.lib`
-are required to compile a project using Visual C++.
-
-1. The header files should be added to `Additional Include Directories` that can
-   be found in project properties `C/C++` then `General`.
-2. The import library has to be added to `Additional Dependencies` that can
-   be found in project properties `Linker` then `Input`.
-   If one will provide only the name `liblz4.lib` without a full path to the library
-   the directory has to be added to `Linker\General\Additional Library Directories`.
-
-The compiled executable will require LZ4 DLL which is available at `dll\liblz4.dll`.
+[LZ4 Homepage]: http://www.lz4.org
