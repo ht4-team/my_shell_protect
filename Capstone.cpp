@@ -152,40 +152,57 @@ void Capstone::AnalyOpcodeHlper(const void* pAddr, int nLen)
 	for (int i = 0; i < nLen; ++i)
 	{
 		g_Vm->data->startoffset = ins[i].address - (uint64_t)pAddr;
-		// write : 2. 记录每次 异或密码 | byte大小 | 是否成功
 		randnumber = rand() % 0xff;
 		g_Vm->data->xorKey = randnumber;
 		g_Vm->data->bytesize = ins[i].size;
-		// fwrite(&randnumber, sizeof(int), 1, fpVmFile);
-		// fwrite(&ins[i].size, sizeof(unsigned short), 1, fpVmFile);
-		// 进入指令解析和Opcode加密
+
+		// Save original bytes before encryption for debug
+		unsigned char origBytes[16] = { 0 };
+		if (g_DebugMode && ins[i].size <= 16) {
+			memcpy(origBytes, (void*)ins[i].address, ins[i].size);
+		}
+
 		if (AnalyencodeVmHlper(&ins[i], randnumber))
 		{
 			g_Vm->data->encodeflag = 1;
-			// fwrite(&vmflag, sizeof(int), 1, fpVmFile);
 		}
 		else
 		{
 			g_Vm->data->encodeflag = 0;
-			// vmflag = 0;
-			// fwrite(&vmflag, sizeof(int), 1, fpVmFile);
 		}
 		strcpy(g_Vm->data->mnemonic, ins[i].mnemonic);
-		// fwrite(ins[i].mnemonic, CS_MNEMONIC_SIZE, 1, fpVmFile);
-		// fflush(fpVmFile);
+
+		// Print per-instruction debug: original asm → encrypted bytes
+		if (g_DebugMode) {
+			// Original hex bytes
+			char hexOrig[64] = { 0 };
+			char hexEnc[64] = { 0 };
+			int pos = 0;
+			for (uint16_t j = 0; j < ins[i].size && j < 16; ++j)
+				pos += sprintf(hexOrig + pos, "%02X ", origBytes[j]);
+
+			// Encrypted bytes (address was advanced by AnalyencodeVmHlper, recompute)
+			unsigned char* encAddr = (unsigned char*)pAddr + g_Vm->data->startoffset;
+			pos = 0;
+			for (uint16_t j = 0; j < ins[i].size && j < 16; ++j)
+				pos += sprintf(hexEnc + pos, "%02X ", encAddr[j]);
+
+			fprintf(stderr, "[debug]   [%2d] 0x%04X  %-24s  %-8s %-28s  enc=%u  xor=0x%02X\n",
+				i, g_Vm->data->startoffset,
+				hexOrig,
+				ins[i].mnemonic, ins[i].op_str,
+				g_Vm->data->encodeflag, g_Vm->data->xorKey);
+			if (g_Vm->data->encodeflag) {
+				fprintf(stderr, "                        -> %-24s\n", hexEnc);
+			}
+		}
+
 		g_Vm->data++;
 	}
-	// 恢复指针,否则保存到文件的则是循环后的指针
 	g_Vm->Hlperdataoffset = g_dataoffset;
 
 	if (g_DebugMode) {
-		fprintf(stderr, "[debug] Capstone disassembled %d instructions for VM encryption:\n", nLen);
-		ArrayHlerp* dbgHlp = (ArrayHlerp*)g_dataHlpers;
-		for (int i = 0; i < nLen; ++i) {
-			fprintf(stderr, "[debug]   [%d] %-6s  size=%-2u  xor=0x%02X  enc=%u  offset=0x%X\n",
-				i, dbgHlp[i].mnemonic, dbgHlp[i].bytesize,
-				dbgHlp[i].xorKey, dbgHlp[i].encodeflag, dbgHlp[i].startoffset);
-		}
+		fprintf(stderr, "[debug] Capstone: %d instructions analyzed for VM encryption\n", nLen);
 		fflush(stderr);
 	}
 
