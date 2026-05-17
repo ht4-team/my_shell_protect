@@ -110,6 +110,28 @@
 #include "lz4.h"
 /* see also "memory routines" below */
 
+/*
+ * CombatShell copies only the shell .text payload into the protected image.
+ * MSVC may lower LZ4's few memmove() calls to an import from VCRUNTIME140.dll;
+ * that import table is intentionally not carried with the shell payload.  Keep a
+ * tiny local memmove implementation so the x64 loader stub stays self-contained.
+ */
+#if defined(_MSC_VER) && !defined(LZ4_COMBATSHELL_USE_CRT_MEMMOVE)
+static void* LZ4_combat_memmove(void* dst, const void* src, size_t size)
+{
+    unsigned char* d = (unsigned char*)dst;
+    const unsigned char* s = (const unsigned char*)src;
+    if (d == s || size == 0) return dst;
+    if (d < s || d >= s + size) {
+        for (size_t i = 0; i < size; ++i) d[i] = s[i];
+    } else {
+        for (size_t i = size; i != 0; --i) d[i - 1] = s[i - 1];
+    }
+    return dst;
+}
+#  define memmove LZ4_combat_memmove
+#endif
+
 
 /*-************************************
 *  Compiler Options

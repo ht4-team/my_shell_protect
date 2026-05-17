@@ -12,6 +12,9 @@
 CString UnShllerProcPath;
 char g_CombatShellDataLocalFile[MAX_PATH] = { 0 };
 extern bool g_DebugMode;
+extern DWORD g_CompressionMethod;
+extern DWORD g_ProtectionFlags;
+extern DWORD g_EncryptionKey;
 extern _Stud* g_stu;
 extern _VmNode* g_Vm;
 extern char* g_dataHlpers;
@@ -27,15 +30,24 @@ bool WriteTrampolineShell(const CString& path, DWORD oldOep);
 bool FileExists(const wchar_t* path);
 WORD GetTargetMachine(const CString& path);
 bool FixPeChecksum(const CString& path);
+bool ParseCompressionOption(const wchar_t* value, DWORD& method);
+bool ParseByteOption(const wchar_t* value, DWORD& out);
+const wchar_t* CompressionMethodName(DWORD method);
 
 void PrintUsage() {
 	wprintf(
 		L"Usage:\n"
-		L"  CombatShellCli.exe pack <target.exe> [--debug]\n"
+		L"  CombatShellCli.exe pack <target.exe> [--debug] [--compress=<quicklz|lz4|none>]\n"
+		L"                         [--vm|--no-vm] [--encrypt-sections] [--xor-key=<hex|dec>]\n"
 		L"  CombatShellCli.exe unpack <target.exe>\n"
 		L"\\n"
 		L"Options:\n"
 		L"  --debug    Print VM instruction and packed section diagnostics\n"
+		L"  --compress Select section payload codec: quicklz, lz4, or none\n"
+		L"  --no-compress Alias for --compress=none\n"
+		L"  --vm / --no-vm Enable or disable x64 entry VM virtualization\n"
+		L"  --encrypt-sections XOR-obfuscate packed section payload before embedding\n"
+		L"  --xor-key Set XOR byte key for --encrypt-sections, default 0x5A\n"
 		L"\\n"
 		L"Notes:\n"
 		L"  - Keep CombatShell.dll in the same directory as the executable.\n"
@@ -154,6 +166,12 @@ void PrintDebugPackInfo() {
 
 	fprintf(stderr, "\n[debug] === Packed Sections ===\n");
 	if (g_stu) {
+		fprintf(stderr, "[debug] compression: %ls (%u)\n",
+			CompressionMethodName(g_stu->s_CompressionMethod),
+			g_stu->s_CompressionMethod);
+		fprintf(stderr, "[debug] protection flags: 0x%08X, xorKey: 0x%02X\n",
+			g_stu->s_ProtectionFlags,
+			g_stu->s_EncryptionKey & 0xFF);
 		fprintf(stderr, "[debug] OEP RVA: 0x%llX\n", (unsigned long long)g_stu->s_dwOepBase);
 		fprintf(stderr, "[debug] section count (original): %llu\n",
 			(unsigned long long)g_stu->s_SectionCount);
@@ -197,6 +215,10 @@ bool RunLegacyPackCore(const CString& inputPath, const CString& targetDirectory)
 	}
 
 	fprintf(stderr, "[legacy] step=compress\n");
+	fprintf(stderr, "[legacy] compression=%ls protection=0x%08X xorKey=0x%02X\n",
+		CompressionMethodName(g_CompressionMethod),
+		g_ProtectionFlags,
+		g_EncryptionKey & 0xFF);
 	fflush(stderr);
 	CompressionData compressor;
 	compressor.puInit(inputPath);
@@ -268,13 +290,25 @@ bool RunPack(const CString& inputPath) {
 	fileName = fileName.Mid(slashPos);
 	const CString backupPath = targetDirectory + L"old_" + fileName;
 
+	const WORD machine = GetTargetMachine(inputPath);
+#ifdef _WIN64
+	if (machine != IMAGE_FILE_MACHINE_AMD64) {
+		fprintf(stderr, "unsupported target machine for this build: 0x%04X (x64 build expects AMD64)\n", machine);
+		return false;
+	}
+#else
+	if (machine != IMAGE_FILE_MACHINE_I386) {
+		fprintf(stderr, "unsupported target machine for this build: 0x%04X (Win32 build expects I386)\n", machine);
+		return false;
+	}
+#endif
+
 	// Backup original executable.
 	CopyFile(inputPath, backupPath, FALSE);
 
 	bool useLegacy = IsLegacyModeEnabled();
 	if (!useLegacy) {
 		// x64 targets prefer real shell flow by default.
-		const WORD machine = GetTargetMachine(inputPath);
 		if (machine == IMAGE_FILE_MACHINE_AMD64) {
 			useLegacy = true;
 		}
@@ -413,6 +447,51 @@ bool IsCompatMarkerFile() {
 		return false;
 	}
 	return strstr(buf, kCompatMarker) != nullptr;
+}
+
+bool ParseCompressionOption(const wchar_t* value, DWORD& method) {
+	if (!value || !*value) {
+		return false;
+	}
+	if (_wcsicmp(value, L"quicklz") == 0 || _wcsicmp(value, L"qlz") == 0) {
+		method = COMBATSHELL_COMPRESS_QUICKLZ;
+		return true;
+	}
+	if (_wcsicmp(value, L"lz4") == 0) {
+		method = COMBATSHELL_COMPRESS_LZ4;
+		return true;
+	}
+	if (_wcsicmp(value, L"none") == 0 || _wcsicmp(value, L"store") == 0 || _wcsicmp(value, L"raw") == 0) {
+		method = COMBATSHELL_COMPRESS_NONE;
+		return true;
+	}
+	return false;
+}
+
+bool ParseByteOption(const wchar_t* value, DWORD& out) {
+	if (!value || !*value) {
+		return false;
+	}
+	wchar_t* end = nullptr;
+	const unsigned long parsed = wcstoul(value, &end, 0);
+	if (!end || *end != L'\0' || parsed > 0xFF) {
+		return false;
+	}
+	out = (DWORD)parsed;
+	return true;
+}
+
+const wchar_t* CompressionMethodName(DWORD method) {
+	switch (method) {
+	case COMBATSHELL_COMPRESS_QUICKLZ:
+		return L"quicklz";
+	case COMBATSHELL_COMPRESS_LZ4:
+		return L"lz4";
+	case COMBATSHELL_COMPRESS_NONE:
+		return L"none";
+	default:
+		return L"unknown";
+	}
 }
 
 bool WriteTrampolineShell(const CString& path, DWORD oldOep) {
@@ -554,6 +633,74 @@ int wmain(int argc, wchar_t* argv[]) {
 	for (int i = 3; i < argc; ++i) {
 		if (_wcsicmp(argv[i], L"--debug") == 0) {
 			g_DebugMode = true;
+		}
+		else if (_wcsicmp(argv[i], L"--no-compress") == 0) {
+			g_CompressionMethod = COMBATSHELL_COMPRESS_NONE;
+		}
+		else if (_wcsicmp(argv[i], L"--vm") == 0) {
+			g_ProtectionFlags |= COMBATSHELL_PROTECT_VM_ENTRY;
+		}
+		else if (_wcsicmp(argv[i], L"--no-vm") == 0) {
+			g_ProtectionFlags &= ~COMBATSHELL_PROTECT_VM_ENTRY;
+		}
+		else if (_wcsicmp(argv[i], L"--encrypt-sections") == 0) {
+			g_ProtectionFlags |= COMBATSHELL_PROTECT_ENCRYPT_SECTIONS;
+		}
+		else if (_wcsicmp(argv[i], L"--no-encrypt-sections") == 0) {
+			g_ProtectionFlags &= ~COMBATSHELL_PROTECT_ENCRYPT_SECTIONS;
+		}
+		else if (_wcsnicmp(argv[i], L"--xor-key=", 10) == 0) {
+			DWORD key = g_EncryptionKey;
+			if (!ParseByteOption(argv[i] + 10, key)) {
+				fwprintf(stderr, L"invalid xor key: %ls\n", argv[i] + 10);
+				PrintUsage();
+				return 2;
+			}
+			g_EncryptionKey = key;
+			g_ProtectionFlags |= COMBATSHELL_PROTECT_ENCRYPT_SECTIONS;
+		}
+		else if (_wcsicmp(argv[i], L"--xor-key") == 0) {
+			if (i + 1 >= argc) {
+				fwprintf(stderr, L"--xor-key requires a value\n");
+				PrintUsage();
+				return 2;
+			}
+			DWORD key = g_EncryptionKey;
+			if (!ParseByteOption(argv[++i], key)) {
+				fwprintf(stderr, L"invalid xor key: %ls\n", argv[i]);
+				PrintUsage();
+				return 2;
+			}
+			g_EncryptionKey = key;
+			g_ProtectionFlags |= COMBATSHELL_PROTECT_ENCRYPT_SECTIONS;
+		}
+		else if (_wcsnicmp(argv[i], L"--compress=", 11) == 0) {
+			DWORD method = g_CompressionMethod;
+			if (!ParseCompressionOption(argv[i] + 11, method)) {
+				fwprintf(stderr, L"invalid compression method: %ls\n", argv[i] + 11);
+				PrintUsage();
+				return 2;
+			}
+			g_CompressionMethod = method;
+		}
+		else if (_wcsicmp(argv[i], L"--compress") == 0) {
+			if (i + 1 >= argc) {
+				fwprintf(stderr, L"--compress requires a value\n");
+				PrintUsage();
+				return 2;
+			}
+			DWORD method = g_CompressionMethod;
+			if (!ParseCompressionOption(argv[++i], method)) {
+				fwprintf(stderr, L"invalid compression method: %ls\n", argv[i]);
+				PrintUsage();
+				return 2;
+			}
+			g_CompressionMethod = method;
+		}
+		else {
+			fwprintf(stderr, L"unknown option: %ls\n", argv[i]);
+			PrintUsage();
+			return 2;
 		}
 	}
 

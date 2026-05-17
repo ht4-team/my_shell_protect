@@ -2,6 +2,19 @@
 #ifndef STUD_H_
 #define STUD_H_
 
+enum CombatShellCompressionMethod : DWORD
+{
+	COMBATSHELL_COMPRESS_QUICKLZ = 0,
+	COMBATSHELL_COMPRESS_LZ4 = 1,
+	COMBATSHELL_COMPRESS_NONE = 2,
+};
+
+enum CombatShellProtectionFlags : DWORD
+{
+	COMBATSHELL_PROTECT_ENCRYPT_SECTIONS = 0x00000001,
+	COMBATSHELL_PROTECT_VM_ENTRY = 0x00000002,
+};
+
 #ifdef _WIN64
 	typedef struct _Stud
 	{
@@ -20,6 +33,9 @@
 		BOOL s_OneSectionSizeofData;
 		DWORD64 s_CompressionSectionRva;
 		DWORD64 s_SaveExportTabRVA;
+		DWORD s_CompressionMethod;
+		DWORD s_ProtectionFlags;
+		DWORD s_EncryptionKey;
 	}Stud;
 #else
 	//  /NODEFAULTLIB:LIBCMT.lib 
@@ -38,6 +54,9 @@
 		BOOL s_OneSectionSizeofData;
 		DWORD s_CompressionSectionRva;
 		DWORD s_SaveExportTabRVA;
+		DWORD s_CompressionMethod;
+		DWORD s_ProtectionFlags;
+		DWORD s_EncryptionKey;
 	}Stud;
 #endif
 

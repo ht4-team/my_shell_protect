@@ -17,11 +17,87 @@ _VmNode*		g_Vm = nullptr;
 char*			g_dataHlpers = nullptr;
 DWORD64			g_dataoffset = 0;
 extern char		g_CombatShellDataLocalFile[MAX_PATH];
+DWORD			g_CompressionMethod =
+#ifdef _WIN64
+	COMBATSHELL_COMPRESS_QUICKLZ;
+#else
+	COMBATSHELL_COMPRESS_LZ4;
+#endif
+DWORD			g_ProtectionFlags =
+#ifdef _WIN64
+	COMBATSHELL_PROTECT_VM_ENTRY;
+#else
+	0;
+#endif
+DWORD			g_EncryptionKey = 0x5A;
 
 // Preserved LOAD_CONFIG fields for the PE loader (filled by CleanDirectData,
 // consumed by CopyStud to write a stub into .VMP spare space).
 DWORD   g_LoadConfigOrigSize = 0;
 DWORD64 g_LoadConfigSecurityCookie = 0;
+
+static int GetCompressionBound(DWORD method, DWORD inputSize)
+{
+	switch (method) {
+	case COMBATSHELL_COMPRESS_QUICKLZ:
+		if (inputSize > (DWORD)((INT_MAX - 1024) / 2))
+			return 0;
+		return (int)(inputSize * 2) + 1024;
+	case COMBATSHELL_COMPRESS_LZ4:
+		if (inputSize > (DWORD)INT_MAX)
+			return 0;
+		return LZ4_compressBound((int)inputSize);
+	case COMBATSHELL_COMPRESS_NONE:
+		if (inputSize > (DWORD)INT_MAX)
+			return 0;
+		return (int)inputSize;
+	default:
+		return 0;
+	}
+}
+
+static DWORD CompressSectionBuffer(
+	DWORD method,
+	const char* input,
+	DWORD inputSize,
+	char* output,
+	int outputCapacity)
+{
+	if (!input || !output || inputSize == 0) {
+		return 0;
+	}
+
+	switch (method) {
+	case COMBATSHELL_COMPRESS_QUICKLZ:
+	{
+		qlz_state_compress* state_compress = (qlz_state_compress*)malloc(sizeof(qlz_state_compress));
+		if (!state_compress) {
+			return 0;
+		}
+		memset(state_compress, 0, sizeof(qlz_state_compress));
+		DWORD compressed = (DWORD)qlz_compress(input, output, inputSize, state_compress);
+		free(state_compress);
+		return compressed;
+	}
+	case COMBATSHELL_COMPRESS_LZ4:
+		return (DWORD)LZ4_compress_default(input, output, (int)inputSize, outputCapacity);
+	case COMBATSHELL_COMPRESS_NONE:
+		memcpy(output, input, inputSize);
+		return inputSize;
+	default:
+		return 0;
+	}
+}
+
+static void XorBuffer(char* data, DWORD size, BYTE key)
+{
+	if (!data || size == 0 || key == 0) {
+		return;
+	}
+	for (DWORD i = 0; i < size; ++i) {
+		data[i] ^= key;
+	}
+}
 
 CompressionData::CompressionData()
 {
@@ -160,11 +236,18 @@ BOOL CompressionData::CompressSectionData()
 		return 0;
 	}
 	g_stu->s_OneSectionSizeofData = FALSE;
+	g_stu->s_CompressionMethod = g_CompressionMethod;
+	g_stu->s_ProtectionFlags = g_ProtectionFlags;
+	g_stu->s_EncryptionKey = g_EncryptionKey & 0xFF;
 
 #ifdef _WIN64
 	// 压缩前后都可以, 仅壳代码VM
 	int nLen = 0;
-	VmcodeEntry(NULL, nLen);
+	if (g_ProtectionFlags & COMBATSHELL_PROTECT_VM_ENTRY) {
+		VmcodeEntry(NULL, nLen);
+	} else if (g_Vm) {
+		memset(g_Vm, 0, sizeof(_VmNode));
+	}
 
 	PIMAGE_NT_HEADERS pNt = (PIMAGE_NT_HEADERS)(((PIMAGE_DOS_HEADER)m_lpBase)->e_lfanew + (DWORD64)m_lpBase);
 #else
@@ -220,10 +303,28 @@ BOOL CompressionData::CompressSectionData()
 	// pe标准大小对齐后（加载基址 + .text->pointertorawdata的数据）= 大小
 	DWORD pStandardHeadersize = psection->PointerToRawData;
 
-	char* SaveCompressData = (char*)malloc(m_hFileSize);
+	DWORD maxCompressedData = 0;
+	{
+		PIMAGE_SECTION_HEADER sizeSection = (PIMAGE_SECTION_HEADER)m_SectionHeadre;
+		for (DWORD i = 0; i < dSectionCount - 1; ++i, ++sizeSection)
+		{
+			if (sizeSection->SizeOfRawData == 0)
+				continue;
+			const int bound = GetCompressionBound(g_CompressionMethod, sizeSection->SizeOfRawData);
+			if (bound <= 0 || maxCompressedData > MAXDWORD - (DWORD)bound) {
+				AfxMessageBox(L"compressed data size overflow.");
+				return false;
+			}
+			maxCompressedData += (DWORD)bound;
+		}
+	}
+	if (maxCompressedData == 0)
+		maxCompressedData = 1;
+
+	char* SaveCompressData = (char*)malloc(maxCompressedData);
 	if (!SaveCompressData)
 		return false;
-	memset(SaveCompressData, 0, m_hFileSize);
+	memset(SaveCompressData, 0, maxCompressedData);
 
 	PIMAGE_SECTION_HEADER pSections = (PIMAGE_SECTION_HEADER)m_SectionHeadre;
 	DWORD ComressTotalSize = 0;
@@ -231,6 +332,7 @@ BOOL CompressionData::CompressSectionData()
 	// 注意修复-改为程序Name_FileData.txt - 保存本地数据记录，脱壳使用.
 	if ((fpFile = fopen(g_CombatShellDataLocalFile, "wb+")) == NULL) 
 	{
+		free(SaveCompressData);
 		AfxMessageBox(L"CombatShell 打开创建失败.");
 		return false;
 	}
@@ -251,45 +353,28 @@ BOOL CompressionData::CompressSectionData()
 		char* buf = NULL;
 		void* DataAddress = (void *)(pSections->PointerToRawData + (DWORD64)m_lpBase);
 		DWORD dwCompressionSize = 0;
-#ifdef _WIN64
-		qlz_state_compress* state_compress = (qlz_state_compress*)malloc(sizeof(qlz_state_compress));
-		if (!state_compress) {
-			AfxMessageBox(L"no enough memory!\n");
-			return -1;
-		}
-		memset(state_compress, 0, sizeof(qlz_state_compress));
-
-		// Keep a generous safety margin to avoid overwrite on incompressible data.
-		const int blen = (int)(pSections->SizeOfRawData * 2) + 1024;
-
-		// 安全空间申请
-		if ((buf = (char*)malloc(sizeof(char) * blen)) == NULL)
+		const int blen = GetCompressionBound(g_CompressionMethod, pSections->SizeOfRawData);
+		if (blen <= 0)
 		{
-			free(state_compress);
-			AfxMessageBox(L"no enough memory!\n");
-			return -1;
+			AfxMessageBox(L"invalid compression method.");
+			return false;
 		}
 
-		/* 压缩 */
-		dwCompressionSize = (DWORD)qlz_compress((char*)DataAddress, buf, pSections->SizeOfRawData, state_compress);
-		free(state_compress);
-#else 
-		DWORD blen;
-
-		// 计算安全缓冲区
-		blen = LZ4_compressBound(pSections->SizeOfRawData);
-
-		// 安全空间申请
 		if ((buf = (char*)malloc(sizeof(char) * blen)) == NULL)
 		{
 			AfxMessageBox(L"no enough memory!\n");
 			return -1;
 		}
 
-		/* 压缩 */
-		dwCompressionSize = LZ4_compress_default((char*)DataAddress, buf, pSections->SizeOfRawData, blen);
-
-#endif
+		dwCompressionSize = CompressSectionBuffer(
+			g_CompressionMethod,
+			(char*)DataAddress,
+			pSections->SizeOfRawData,
+			buf,
+			blen);
+		if ((g_ProtectionFlags & COMBATSHELL_PROTECT_ENCRYPT_SECTIONS) && dwCompressionSize > 0) {
+			XorBuffer(buf, dwCompressionSize, (BYTE)(g_EncryptionKey & 0xFF));
+		}
 		if (dwCompressionSize == 0) {
 			if (buf) {
 				free(buf);
@@ -306,6 +391,13 @@ BOOL CompressionData::CompressSectionData()
 
 		// 计算缓区去后大小
 		memcpy(&g_stu->s_blen[i], &dwCompressionSize, sizeof(DWORD));
+
+		if (ComressTotalSize > maxCompressedData - dwCompressionSize) {
+			free(buf);
+			free(SaveCompressData);
+			AfxMessageBox(L"compressed data buffer overflow.");
+			return false;
+		}
 
 		// 保存压缩后区段数据（拼接每一个压缩区段）
 		memcpy(&SaveCompressData[ComressTotalSize], buf, dwCompressionSize);

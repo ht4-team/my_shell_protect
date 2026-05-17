@@ -41,6 +41,17 @@ function Assert-ProgramOutput {
     }
 }
 
+function Invoke-NativeChecked {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments
+    )
+    & $FilePath @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Command failed: $FilePath $($Arguments -join ' ') (exit=$LASTEXITCODE)"
+    }
+}
+
 function Test-ProcessLiveness {
     param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -111,9 +122,9 @@ function Get-PeMachine {
 Write-Host "[1/4] Build binaries"
 $msbuild = Resolve-MSBuildPath
 Write-Host "Using MSBuild: $msbuild"
-& $msbuild .\CombatShell\CombatShell.vcxproj /m /p:Configuration=$Configuration /p:Platform=$Platform
-& $msbuild .\CombatShellCli.vcxproj /m /p:Configuration=$Configuration /p:Platform=$Platform
-& $msbuild .\examples\MiniTarget.vcxproj /m /p:Configuration=$Configuration /p:Platform=$Platform
+Invoke-NativeChecked $msbuild .\CombatShell\CombatShell.vcxproj /m /p:Configuration=$Configuration /p:Platform=$Platform
+Invoke-NativeChecked $msbuild .\CombatShellCli.vcxproj /m /p:Configuration=$Configuration /p:Platform=$Platform
+Invoke-NativeChecked $msbuild .\examples\MiniTarget.vcxproj /m /p:Configuration=$Configuration /p:Platform=$Platform
 
 $binDir = if ($Platform -eq "x64") { "bin\\x64" } else { "bin" }
 if (!(Test-Path $binDir)) {

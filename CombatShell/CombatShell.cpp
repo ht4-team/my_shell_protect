@@ -430,25 +430,46 @@ void UnCompression()
 		MyVirtualProtect(Address, g_stud.s_SectionOffsetAndSize[i][0], PAGE_EXECUTE_READWRITE, &Att_old);
 		MyVirtualProtect(CompressAddress, g_stud.s_blen[i], PAGE_EXECUTE_READWRITE, &Att_olds);
 
-#ifdef _WIN64
-		qlz_state_decompress* state_decompress = (qlz_state_decompress*)MyVirtualAlloc(
-			NULL,
-			sizeof(qlz_state_decompress),
-			MEM_RESERVE | MEM_COMMIT,
-			PAGE_READWRITE);
-		if (!state_decompress) {
-			MyVirtualProtect(Address, g_stud.s_SectionOffsetAndSize[i][0], Att_old, &Att_old);
-			MyVirtualProtect(CompressAddress, g_stud.s_blen[i], Att_olds, &Att_olds);
-			return;
+		if (g_stud.s_ProtectionFlags & COMBATSHELL_PROTECT_ENCRYPT_SECTIONS) {
+			BYTE key = (BYTE)(g_stud.s_EncryptionKey & 0xFF);
+			if (key != 0) {
+				for (DWORD j = 0; j < g_stud.s_blen[i]; ++j) {
+					CompressAddress[j] ^= key;
+				}
+			}
 		}
-		int nRet = (int)qlz_decompress(
-			(char*)CompressAddress,
-			(char*)(pSections->VirtualAddress + m_Dlllpbase),
-			state_decompress);
-#else
-		// 缂撳啿鍖? RVA+鍔犺浇鍩哄潃  缂撳啿鍖哄ぇ灏? 鍘嬬缉杩囧幓鐨勫ぇ灏?
-		int nRet = LZ4_decompress_safe((char*)CompressAddress, (char*)(pSections->VirtualAddress + m_Dlllpbase), g_stud.s_blen[i], pSections->SizeOfRawData);
-#endif
+
+		int nRet = 0;
+		if (g_stud.s_CompressionMethod == COMBATSHELL_COMPRESS_QUICKLZ) {
+			qlz_state_decompress* state_decompress = (qlz_state_decompress*)MyVirtualAlloc(
+				NULL,
+				sizeof(qlz_state_decompress),
+				MEM_RESERVE | MEM_COMMIT,
+				PAGE_READWRITE);
+			if (!state_decompress) {
+				MyVirtualProtect(Address, g_stud.s_SectionOffsetAndSize[i][0], Att_old, &Att_old);
+				MyVirtualProtect(CompressAddress, g_stud.s_blen[i], Att_olds, &Att_olds);
+				return;
+			}
+			nRet = (int)qlz_decompress(
+				(char*)CompressAddress,
+				(char*)(pSections->VirtualAddress + m_Dlllpbase),
+				state_decompress);
+		}
+		else if (g_stud.s_CompressionMethod == COMBATSHELL_COMPRESS_LZ4) {
+			nRet = LZ4_decompress_safe(
+				(char*)CompressAddress,
+				(char*)(pSections->VirtualAddress + m_Dlllpbase),
+				g_stud.s_blen[i],
+				pSections->SizeOfRawData);
+		}
+		else if (g_stud.s_CompressionMethod == COMBATSHELL_COMPRESS_NONE) {
+			BYTE* dst = (BYTE*)(pSections->VirtualAddress + m_Dlllpbase);
+			for (DWORD j = 0; j < pSections->SizeOfRawData; ++j) {
+				dst[j] = CompressAddress[j];
+			}
+			nRet = (int)pSections->SizeOfRawData;
+		}
 		if (nRet <= 0) {
 			MyVirtualProtect(Address, g_stud.s_SectionOffsetAndSize[i][0], Att_old, &Att_old);
 			MyVirtualProtect(CompressAddress, g_stud.s_blen[i], Att_olds, &Att_olds);
